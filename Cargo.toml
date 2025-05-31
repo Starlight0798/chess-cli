@@ -8,9 +8,8 @@ tokio = { version = "1.45.1", features = ["full"] }
 async-trait = "0.1.88"
 crossterm = "0.29.0"
 anyhow = "1.0.98"
-serde = { version = "1.0.219", features = ["derive"] }
 hashbrown = "0.15.3"
 toml = "0.8.22"
-log = "0.4.27"
 dirs = "6.0.0"
-env_logger = "0.11.8"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

@@ -1,6 +1,7 @@
+# 支持的引擎: pikafish
+# 支持的协议: uci
+
 [default]
-name = "皮卡鱼(Pikafish)"
+name = "pikafish"
 protocol = "uci"
 path = "./engines/pikafish-avx2"
-weights = "./engines/pikafish.weights"
-args = []

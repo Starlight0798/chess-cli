@@ -10,7 +10,7 @@ pub trait EngineProtocol: Send + Sync {
     async fn set_position(&mut self, fen: &str) -> Result<()>;
     
     /// 开始思考
-    async fn go(&mut self, think_time: Option<u64>) -> Result<String>;
+    async fn go(&mut self, think_time: Option<usize>) -> Result<String>;
     
     /// 停止思考
     async fn stop(&mut self) -> Result<()>;
@@ -22,33 +22,76 @@ pub trait EngineProtocol: Send + Sync {
     async fn send_command(&mut self, command: &str) -> Result<()>;
 }
 
+/// 支持的协议类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineProtocolType {
+    Uci,
+    // TODO: 其他协议类型
+}
+
+impl FromStr for EngineProtocolType {
+    type Err = anyhow::Error;
+    
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "uci" => Ok(EngineProtocolType::Uci),
+            _ => Err(anyhow!("不支持的协议类型: {}", s)),
+        }
+    }
+}
+
+/// 支持的引擎
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EngineType {
+    Pikafish,
+    // TODO: 其他引擎类型
+}
+
+impl FromStr for EngineType {
+    type Err = anyhow::Error;
+    
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "pikafish" => Ok(EngineType::Pikafish),
+            _ => Err(anyhow!("不支持的引擎类型: {}", s)),
+        }
+    }
+}
+
+impl ToString for EngineType {
+    fn to_string(&self) -> String {
+        match self {
+            EngineType::Pikafish => "pikafish".to_string(),
+        }
+    }
+}
+
 /// UCI 协议引擎实现
 pub struct UciEngine {
     process: Child,
-    reader: BufReader<tokio::process::ChildStdout>,
+    reader: BufReader<ChildStdout>,
 }
 
 impl UciEngine {
     /// 创建新的 UCI 引擎实例
-    pub fn new(engine_path: &str, args: &[String]) -> Result<Self> {
+    pub fn new(engine_path: &str) -> Result<Self> {
         // 构建命令
-        let mut cmd = Command::new(engine_path);
-        cmd.args(args)
-            .stdin(Stdio::piped())
+        let mut cmd: Command = Command::new(engine_path);
+        cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit()) // 将 stderr 重定向到终端
+            .stderr(Stdio::inherit()) 
             .kill_on_drop(true);
 
         // 启动进程
-        let mut process = cmd
+        let mut process: Child = cmd
             .spawn()
-            .with_context(|| format!("Failed to start engine: {}", engine_path))?;
+            .with_context(|| format!("启动引擎失败: {}", engine_path))?;
 
         // 获取 stdout
-        let stdout = process
+        let stdout: ChildStdout = process
             .stdout
             .take()
-            .ok_or_else(|| anyhow!("Failed to capture engine stdout"))?;
+            .ok_or_else(|| anyhow!("获取引擎标准输出失败"))?;
 
         Ok(Self {
             process,
@@ -58,41 +101,41 @@ impl UciEngine {
 
     /// 发送命令到引擎
     async fn send_command(&mut self, command: &str) -> Result<()> {
-        let stdin = self
+        let stdin: &mut ChildStdin = self
             .process
             .stdin
             .as_mut()
-            .ok_or_else(|| anyhow!("Failed to open engine stdin"))?;
+            .ok_or_else(|| anyhow!("打开引擎标准输入失败"))?;
 
         // 写入命令并添加换行符
         stdin
             .write_all(command.as_bytes())
             .await
-            .context("Failed to write command to engine")?;
+            .context("写入命令到引擎失败")?;
         stdin
             .write_all(b"\n")
             .await
-            .context("Failed to write newline to engine")?;
+            .context("写入换行符到引擎失败")?;
         stdin
             .flush()
             .await
-            .context("Failed to flush engine stdin")?;
+            .context("刷新引擎标准输入失败")?;
 
-        // 记录发送的命令（调试用）
-        log::debug!("-> {}", command.trim());
+        log_info!(format!("发送命令到引擎: {}", command));
+
         Ok(())
     }
 
     /// 读取引擎响应
     async fn read_response(&mut self) -> Result<String> {
-        let mut response = String::new();
+        let mut response: String = String::new();
         self.reader
             .read_line(&mut response)
             .await
-            .context("Failed to read from engine stdout")?;
+            .context("读取引擎输出失败")?;
 
-        // 记录接收的响应（调试用）
-        log::debug!("<- {}", response.trim());
+        log_info!(format!("引擎响应: {}", response.trim()));
+
         Ok(response)
     }
 }
@@ -104,7 +147,7 @@ impl EngineProtocol for UciEngine {
         self.send_command("uci").await?;
         
         // 等待 uciok 响应
-        let mut response = String::new();
+        let mut response: String = String::new();
         while !response.contains("uciok") {
             response = self.read_response().await?;
         }
@@ -113,7 +156,7 @@ impl EngineProtocol for UciEngine {
         self.send_command("isready").await?;
         
         // 等待 readyok 响应
-        let mut response = String::new();
+        let mut response: String = String::new();
         while !response.contains("readyok") {
             response = self.read_response().await?;
         }
@@ -125,9 +168,9 @@ impl EngineProtocol for UciEngine {
         self.send_command(&format!("position fen {}", fen)).await
     }
 
-    async fn go(&mut self, think_time: Option<u64>) -> Result<String> {
+    async fn go(&mut self, think_time: Option<usize>) -> Result<String> {
         // 构建 go 命令
-        let command = match think_time {
+        let command: String = match think_time {
             Some(time) => format!("go movetime {}", time),
             None => "go".to_string(),
         };
@@ -135,9 +178,9 @@ impl EngineProtocol for UciEngine {
         self.send_command(&command).await?;
         
         // 读取响应直到找到 bestmove
-        let mut best_move = None;
+        let mut best_move: Option<String> = None;
         while best_move.is_none() {
-            let response = self.read_response().await?;
+            let response: String = self.read_response().await?;
             
             if response.starts_with("bestmove") {
                 let parts: Vec<&str> = response.split_whitespace().collect();
@@ -147,7 +190,7 @@ impl EngineProtocol for UciEngine {
             }
         }
         
-        best_move.ok_or_else(|| anyhow!("Engine did not return bestmove"))
+        best_move.ok_or_else(|| anyhow!("引擎未返回最佳着法"))
     }
 
     async fn stop(&mut self) -> Result<()> {
@@ -160,8 +203,8 @@ impl EngineProtocol for UciEngine {
         // 等待引擎退出
         sleep(Duration::from_millis(100)).await;
         
-        // 尝试终止进程（如果仍在运行）
-        let _ = self.process.kill().await;
+        // 尝试终止进程
+        self.process.kill().await?;
         
         Ok(())
     }

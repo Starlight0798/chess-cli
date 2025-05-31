@@ -3,6 +3,5 @@
 pub mod manager;
 pub mod protocol;
 
-// 公开导出
-pub use manager::EngineManager;
-pub use protocol::{EngineProtocol, UciEngine};
+pub use manager::*;
+pub use protocol::*;

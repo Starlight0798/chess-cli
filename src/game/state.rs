@@ -37,6 +37,13 @@ pub struct Piece {
     pub kind: PieceKind,
 }
 
+/// 坐标
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Position {
+    pub row: usize,
+    pub col: usize,
+}
+
 /// 游戏状态
 #[derive(Clone)]
 pub struct GameState {
@@ -44,7 +51,7 @@ pub struct GameState {
     pub board: [[Option<Piece>; 9]; 10],
     /// 当前轮到哪个玩家
     pub current_player: PlayerColor,
-    /// 走子历史（可选，用于悔棋等）
+    /// 走子历史
     pub history: Vec<String>,
 }
 
@@ -65,22 +72,22 @@ impl GameState {
     pub fn apply_move(&mut self, move_str: &str) -> Result<()> {
         // 将走法字符串转换为坐标
         let (from, to) = Self::parse_move(move_str)?;
+        log_info!(self.current_player, move_str, from, to);
         
         // 检查起始位置是否有棋子
-        let piece = self.board[from.1][from.0]
+        let piece: Piece = self.board[from.row][from.col]
             .ok_or_else(|| anyhow!("起始位置没有棋子"))?;
         
-        // 检查棋子颜色是否与当前玩家一致
+        // 检查棋子颜色是否与当前玩家一致   
         if piece.color != self.current_player {
             return Err(anyhow!("不能移动对方的棋子"));
         }
         
-        // TODO: 这里需要实现走法规则验证
-        // 实际项目中应该添加完整的规则验证
+        // TODO: 添加走法规则验证
         
         // 执行移动：将棋子移动到目标位置，起始位置置空
-        self.board[to.1][to.0] = Some(piece);
-        self.board[from.1][from.0] = None;
+        self.board[to.row][to.col] = Some(piece);
+        self.board[from.row][from.col] = None;
         
         // 切换玩家
         self.current_player = self.current_player.opponent();
@@ -94,25 +101,25 @@ impl GameState {
     /// 将走法字符串解析为两个坐标：((from_x, from_y), (to_x, to_y))
     /// 坐标系统：x是列（0-8对应a-i），y是行（0-9，0是底部，9是顶部）
     /// 例如："h2e2" -> ((7,2), (4,2))
-    fn parse_move(move_str: &str) -> Result<((usize, usize), (usize, usize))> {
+    fn parse_move(move_str: &str) -> Result<(Position, Position)> {
         if move_str.len() != 4 {
             return Err(anyhow!("走法格式错误，应为4个字符"));
         }
         
         let chars: Vec<char> = move_str.chars().collect();
-        let from_x = match chars[0] {
+        let from_x: usize = match chars[0] {
             'a'..='i' => chars[0] as usize - 'a' as usize,
             _ => return Err(anyhow!("起始列无效")),
         };
-        let from_y = match chars[1] {
+        let from_y: usize = match chars[1] {
             '0'..='9' => chars[1] as usize - '0' as usize,
             _ => return Err(anyhow!("起始行无效")),
         };
-        let to_x = match chars[2] {
+        let to_x: usize = match chars[2] {
             'a'..='i' => chars[2] as usize - 'a' as usize,
             _ => return Err(anyhow!("目标列无效")),
         };
-        let to_y = match chars[3] {
+        let to_y: usize = match chars[3] {
             '0'..='9' => chars[3] as usize - '0' as usize,
             _ => return Err(anyhow!("目标行无效")),
         };
@@ -125,7 +132,7 @@ impl GameState {
             return Err(anyhow!("行超出范围"));
         }
         
-        Ok(((from_x, from_y), (to_x, to_y)))
+        Ok((Position { col: from_x, row: from_y }, Position { col: to_x, row: to_y }))
     }
     
     /// 生成当前局面的FEN字符串

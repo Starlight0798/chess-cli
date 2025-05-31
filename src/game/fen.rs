@@ -8,31 +8,30 @@ impl FenProcessor {
     /// 解析FEN字符串，创建游戏状态
     pub fn parse_fen(fen: &str) -> Result<GameState> {
         let parts: Vec<&str> = fen.split_whitespace().collect();
-        if parts.len() < 1 {
-            return Err(anyhow!("FEN字符串不完整"));
+        if parts.len() < 2 {
+            return Err(anyhow!("FEN字符串至少包括两部分: 棋盘状态和当前玩家"));
         }
         
-        let board_str = parts[0];
-        let mut board = [[None; 9]; 10];
+        let board_str: &str = parts[0];
+        let mut board: [[Option<Piece>; 9]; 10] = [[None; 9]; 10];
         
-        // 按行分割
-        let rows: Vec<&str> = board_str.split('/').collect();
+        // 按行分割并反转顺序
+        let mut rows: Vec<&str> = board_str.split('/').collect();
+        rows.reverse();
         if rows.len() != 10 {
             return Err(anyhow!("FEN必须有10行"));
         }
         
         for (y, row) in rows.iter().enumerate() {
-            let mut x = 0;
+            let mut x: usize = 0;
             for c in row.chars() {
-                if x >= 9 {
-                    return Err(anyhow!("一行超过9个格子"));
-                }
-                
+                // 数字表示空格子数量
                 if let Some(digit) = c.to_digit(10) {
-                    // 跳过空位
                     x += digit as usize;
-                } else {
-                    let piece = Self::char_to_piece(c)?;
+                } 
+                // 否则是棋子字符
+                else {
+                    let piece: Piece = Self::char_to_piece(c)?;
                     board[y][x] = Some(piece);
                     x += 1;
                 }
@@ -43,15 +42,11 @@ impl FenProcessor {
             }
         }
         
-        // 解析当前玩家（默认为红方）
-        let current_player = if parts.len() >= 2 {
-            match parts[1] {
-                "w" => PlayerColor::Red,
-                "b" => PlayerColor::Black,
-                _ => PlayerColor::Red,
-            }
-        } else {
-            PlayerColor::Red
+        // 解析当前玩家
+        let current_player: PlayerColor = match parts[1] {
+            "w" => PlayerColor::Red,
+            "b" => PlayerColor::Black,
+            _ => return Err(anyhow!("当前玩家必须是 'w' 或 'b'")),
         };
         
         Ok(GameState {
@@ -66,15 +61,15 @@ impl FenProcessor {
         let (color, kind) = match c {
             'K' => (PlayerColor::Red, PieceKind::General),
             'A' => (PlayerColor::Red, PieceKind::Advisor),
-            'E' => (PlayerColor::Red, PieceKind::Elephant),
-            'H' => (PlayerColor::Red, PieceKind::Horse),
+            'B' => (PlayerColor::Red, PieceKind::Elephant),
+            'N' => (PlayerColor::Red, PieceKind::Horse),
             'R' => (PlayerColor::Red, PieceKind::Rook),
             'C' => (PlayerColor::Red, PieceKind::Cannon),
             'P' => (PlayerColor::Red, PieceKind::Pawn),
             'k' => (PlayerColor::Black, PieceKind::General),
             'a' => (PlayerColor::Black, PieceKind::Advisor),
-            'e' => (PlayerColor::Black, PieceKind::Elephant),
-            'h' => (PlayerColor::Black, PieceKind::Horse),
+            'b' => (PlayerColor::Black, PieceKind::Elephant),
+            'n' => (PlayerColor::Black, PieceKind::Horse),
             'r' => (PlayerColor::Black, PieceKind::Rook),
             'c' => (PlayerColor::Black, PieceKind::Cannon),
             'p' => (PlayerColor::Black, PieceKind::Pawn),
@@ -85,11 +80,12 @@ impl FenProcessor {
     
     /// 从游戏状态生成FEN字符串
     pub fn generate_fen(state: &GameState) -> String {
-        let mut fen = String::new();
+        let mut fen: String = String::new();
         
-        for (y, row) in state.board.iter().enumerate() {
-            let mut empty = 0;
-            for piece in row {
+        // 反转行顺序：从黑方顶部（第9行）到红方底部（第0行）
+        for y in (0..10).rev() {
+            let mut empty: usize = 0;
+            for piece in &state.board[y] {
                 if let Some(p) = piece {
                     // 如果有空位，先输出空位数字
                     if empty > 0 {
@@ -107,8 +103,8 @@ impl FenProcessor {
                 fen.push_str(&empty.to_string());
             }
             
-            // 行之间用斜杠分隔
-            if y < 9 {
+            // 行之间用斜杠分隔（除了最后一行）
+            if y > 0 {
                 fen.push('/');
             }
         }
@@ -128,15 +124,15 @@ impl FenProcessor {
         match (piece.color, piece.kind) {
             (PlayerColor::Red, PieceKind::General) => 'K',
             (PlayerColor::Red, PieceKind::Advisor) => 'A',
-            (PlayerColor::Red, PieceKind::Elephant) => 'E',
-            (PlayerColor::Red, PieceKind::Horse) => 'H',
+            (PlayerColor::Red, PieceKind::Elephant) => 'B',
+            (PlayerColor::Red, PieceKind::Horse) => 'N',
             (PlayerColor::Red, PieceKind::Rook) => 'R',
             (PlayerColor::Red, PieceKind::Cannon) => 'C',
             (PlayerColor::Red, PieceKind::Pawn) => 'P',
             (PlayerColor::Black, PieceKind::General) => 'k',
             (PlayerColor::Black, PieceKind::Advisor) => 'a',
-            (PlayerColor::Black, PieceKind::Elephant) => 'e',
-            (PlayerColor::Black, PieceKind::Horse) => 'h',
+            (PlayerColor::Black, PieceKind::Elephant) => 'b',
+            (PlayerColor::Black, PieceKind::Horse) => 'n',
             (PlayerColor::Black, PieceKind::Rook) => 'r',
             (PlayerColor::Black, PieceKind::Cannon) => 'c',
             (PlayerColor::Black, PieceKind::Pawn) => 'p',

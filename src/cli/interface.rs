@@ -1,185 +1,134 @@
 use crate::{
-    cli::{display, input},
-    engine::{manager::EngineManager, protocol::EngineProtocol},
-    game::state::GameState,
-    utils::Result,
+    cli::{display, input}, engine::{EngineManager, EngineProtocol, EngineType}, game::{GameManager, GameState, PlayerColor}, log_error, utils::*
 };
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use crate::utils::*;
 
-/// 玩家颜色
-#[derive(Debug, Clone, Copy)]
-pub enum PlayerColor {
-    Red,
-    Black,
-}
 
-/// 命令枚举
+/// 用户命令
 #[derive(Debug)]
 pub enum Command {
-    NewGame {
-        engine_name: String,
-        player_color: PlayerColor,
-    },
+    NewGame { engine_type: EngineType, player_color: PlayerColor },
     MakeMove(String),
     StopEngine,
     ShowBoard,
     Quit,
+    Error(String),
 }
 
-/// 游戏管理器
-pub struct GameManager {
-    pub state: GameState,
-    engine: Box<dyn EngineProtocol>,
-    current_thinking: Option<UnboundedSender<()>>,
-}
-
-impl GameManager {
-    pub fn new(engine: Box<dyn EngineProtocol>) -> Self {
-        Self {
-            state: GameState::new(),
-            engine,
-            current_thinking: None,
-        }
-    }
-    
-    pub async fn start_new_game(&mut self, player_color: PlayerColor) -> Result<()> {
-        self.state = GameState::new();
-        self.engine.init().await?;
-        self.engine.set_position(&self.state.to_fen()).await?;
-        
-        if player_color == PlayerColor::Black {
-            self.engine_move().await?;
-        }
-        
-        Ok(())
-    }
-    
-    pub async fn player_move(&mut self, move_str: &str) -> Result<()> {
-        self.state.apply_move(move_str)?;
-        self.engine.set_position(&self.state.to_fen()).await?;
-        self.engine_move().await?;
-        Ok(())
-    }
-    
-    async fn engine_move(&mut self) -> Result<()> {
-        let (tx, rx) = unbounded_channel();
-        self.current_thinking = Some(tx);
-        
-        let mut engine = self.engine.as_mut();
-        let think_handle = tokio::spawn(async move {
-            tokio::select! {
-                result = engine.go(None) => result,
-                _ = rx.recv() => Err(anyhow!("思考被中断")),
-            }
-        });
-        
-        let best_move = think_handle.await??;
-        self.state.apply_move(&best_move)?;
-        self.engine.set_position(&self.state.to_fen()).await?;
-        self.current_thinking = None;
-        
-        Ok(())
-    }
-    
-    pub async fn stop_and_get_bestmove(&mut self) -> Result<String> {
-        if let Some(tx) = self.current_thinking.take() {
-            let _ = tx.send(());
-            self.engine.stop().await?;
-            
-            // 获取当前最佳着法
-            self.engine.go(Some(100)).await // 短时间获取最佳着法
-        } else {
-            Err(anyhow!("引擎未在思考中"))
-        }
-    }
-}
-
-/// 运行交互循环
+/// 运行交互式主循环
 pub async fn run_interactive_loop() -> Result<()> {
-    // 初始化终端
-    display::init_terminal()?;
+    // 初始化显示
+    display::show_welcome()?;
     
-    let (tx, rx) = unbounded_channel();
-    let input_handle = tokio::spawn(async move {
-        if let Err(e) = input::listen_for_commands(tx).await {
-            display::print_error(&format!("监听命令出错: {}", e));
-        }
-    });
-
-    let mut current_game: Option<GameManager> = None;
-    let engine_manager = EngineManager::new()?;
-
-    display::clear_screen();
-    display::print_welcome();
-
+    // 创建命令通道
+    let (tx, mut rx) = unbounded_channel::<Command>();
+    
+    // 启动输入监听
+    spawn(input::listen_for_commands(tx));
+    
+    // 创建引擎管理器
+    let engine_manager: EngineManager = EngineManager::new()
+        .map_err(|e| anyhow!("引擎初始化失败: {}", e))?;
+    
+    // 初始化游戏管理器
+    let mut game_manager: Option<GameManager> = None;
+    
+    // 主事件循环
     while let Some(cmd) = rx.recv().await {
+        // 先清空消息区域
+        display::clear_message_area()?;
+        
         match cmd {
-            Command::NewGame {
-                engine_name,
-                player_color,
-            } => {
-                match engine_manager.create_protocol(&engine_name) {
-                    Ok(protocol) => {
-                        let mut game = GameManager::new(protocol);
-                        if let Err(e) = game.start_new_game(player_color).await {
-                            display::print_error(&format!("开始新游戏失败: {}", e));
-                        } else {
-                            if let Err(e) = display::render_board(&game.state.to_fen()) {
-                                display::print_error(&format!("渲染棋盘失败: {}", e));
-                            }
-                            current_game = Some(game);
-                        }
+            Command::NewGame { engine_type, player_color } => {
+                match handle_new_game(&engine_manager, engine_type, player_color).await {
+                    Ok(game) => {
+                        game_manager = Some(game);
+                        display::render_board(&game_manager.as_ref().unwrap().state)?;
                     }
-                    Err(e) => display::print_error(&format!("创建引擎失败: {}", e)),
+                    Err(e) => display::show_error(&e.to_string())?,
                 }
             }
             Command::MakeMove(move_str) => {
-                if let Some(game) = &mut current_game {
-                    if let Err(e) = game.player_move(&move_str).await {
-                        display::print_error(&format!("走棋失败: {}", e));
-                    } else {
-                        if let Err(e) = display::render_board(&game.state.to_fen()) {
-                            display::print_error(&format!("渲染棋盘失败: {}", e));
+                if let Some(game) = &mut game_manager {
+                    match game.player_move(&move_str).await {
+                        Ok(_) => {
+                            display::render_board(&game.state)?;
                         }
+                        Err(e) => display::show_error(&e.to_string())?,
                     }
                 } else {
-                    display::print_error("没有进行中的游戏");
+                    display::show_error("请先使用 'new' 命令开始游戏")?;
                 }
             }
             Command::StopEngine => {
-                if let Some(game) = &mut current_game {
+                if let Some(game) = &mut game_manager {
                     match game.stop_and_get_bestmove().await {
-                        Ok(best_move) => display::print_best_move(&best_move),
-                        Err(e) => display::print_error(&format!("停止引擎失败: {}", e)),
+                        Ok(best_move) => {
+                            display::show_best_move(&best_move)?;
+                        }
+                        Err(e) => display::show_error(&e.to_string())?,
                     }
                 } else {
-                    display::print_error("没有进行中的游戏");
+                    display::show_error("没有正在进行的游戏")?;
                 }
             }
             Command::ShowBoard => {
-                if let Some(game) = &current_game {
-                    if let Err(e) = display::render_board(&game.state.to_fen()) {
-                        display::print_error(&format!("渲染棋盘失败: {}", e));
-                    }
+                if let Some(game) = &game_manager {
+                    display::render_board(&game.state)?;
                 } else {
-                    display::print_error("没有进行中的游戏");
+                    display::show_error("没有游戏状态可显示")?;
                 }
             }
-            Command::Quit => {
-                // 退出前清理
-                if let Some(mut game) = current_game {
-                    let _ = game.engine.quit().await;
-                }
-                break;
-            }
+            Command::Quit => break,
+            Command::Error(msg) => display::show_error(&msg)?,
         }
     }
-
-    // 取消输入监听
-    input_handle.abort();
     
-    // 清理终端
+    // 清理并退出
+    if let Some(mut game) = game_manager {
+        let _ = game.quit().await;
+    }
+    
     display::cleanup_terminal()?;
     Ok(())
+}
+
+/// 处理新游戏命令
+async fn handle_new_game(
+    engine_manager: &EngineManager,
+    engine_type: EngineType,
+    player_color: PlayerColor,
+) -> Result<GameManager> {
+    // 创建引擎实例
+    let mut engine: Box<dyn EngineProtocol + 'static> = engine_manager.create_engine_instance(&engine_type)?;
+    
+    // 初始化引擎
+    engine.init().await?;
+    
+    // 创建游戏管理器
+    let mut game: GameManager = GameManager::new(engine);
+    
+    // 开始新游戏
+    game.start_new_game(player_color).await?;
+    
+    Ok(game)
+}
+
+/// 主循环
+pub async fn run() -> Result<()> {
+    match run_interactive_loop().await {
+        Err(e) => {
+            #[cfg(debug_assertions)]
+            { 
+                log_error!(e);
+                Err(e) 
+            }
+
+            #[cfg(not(debug_assertions))]
+            {
+                let _ = display::show_error("内部错误");
+                Ok(())
+            }
+        },
+        _ => Ok(()),
+    }
 }

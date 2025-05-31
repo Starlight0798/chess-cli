@@ -2,7 +2,8 @@
 
 pub mod fen;
 pub mod state;
+pub mod manager;
 
-// 公开导出
-pub use fen::FenProcessor;
-pub use state::{GameState, PlayerColor, Piece, PieceKind};
+pub use fen::*;
+pub use state::*;
+pub use manager::*;

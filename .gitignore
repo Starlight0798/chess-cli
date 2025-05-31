@@ -1,2 +1,4 @@
 /engines
 /target
+*.log
+fen.txt

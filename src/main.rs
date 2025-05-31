@@ -6,15 +6,25 @@
 
 mod utils;
 mod game;
-mod cli;
 mod engine;
+mod cli;
 
 use crate::{
-    cli::interface::run_interactive_loop,
+    cli::interface::run,
     utils::*,
 };
 
 fn main() -> Result<()> {
-    let rt: tokio::runtime::Runtime = tokio::runtime::Runtime::new()?;
-    rt.block_on(run_interactive_loop())
+    init_logger()?;
+    let rt: Runtime = Runtime::new()?;
+    #[cfg(debug_assertions)]
+    {
+        rt.block_on(cli::interface::run())?;
+    }
+    #[cfg(not(debug_assertions))]
+    if let Err(e) = rt.block_on(cli::interface::run()) {
+        let _ = cli::display::cleanup_terminal();
+        eprintln!("程序错误: {}", e);
+    }
+    Ok(())
 }
