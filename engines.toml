@@ -1,0 +1,6 @@
+[default]
+name = "皮卡鱼(Pikafish)"
+protocol = "uci"
+path = "./engines/pikafish-avx2"
+weights = "./engines/pikafish.weights"
+args = []
