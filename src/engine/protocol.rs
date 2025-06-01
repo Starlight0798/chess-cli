@@ -14,37 +14,19 @@ pub trait EngineProtocol: Send + Sync {
     
     /// 停止思考
     async fn stop(&mut self) -> Result<()>;
+
+    /// 设置引擎选项
+    async fn set_option(&mut self, name: &str, value: Option<&str>) -> Result<()>;
     
     /// 退出引擎
     async fn quit(&mut self) -> Result<()>;
-    
-    /// 发送自定义命令
-    async fn send_command(&mut self, command: &str) -> Result<()>;
-}
-
-/// 支持的协议类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EngineProtocolType {
-    Uci,
-    // TODO: 其他协议类型
-}
-
-impl FromStr for EngineProtocolType {
-    type Err = anyhow::Error;
-    
-    fn from_str(s: &str) -> Result<Self> {
-        match s.to_lowercase().as_str() {
-            "uci" => Ok(EngineProtocolType::Uci),
-            _ => Err(anyhow!("不支持的协议类型: {}", s)),
-        }
-    }
 }
 
 /// 支持的引擎
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EngineType {
     Pikafish,
-    // TODO: 其他引擎类型
+    // TODO: 支持其他引擎
 }
 
 impl FromStr for EngineType {
@@ -121,7 +103,7 @@ impl UciEngine {
             .await
             .context("刷新引擎标准输入失败")?;
 
-        log_info!(format!("发送命令到引擎: {}", command));
+        log_info!(command);
 
         Ok(())
     }
@@ -134,7 +116,7 @@ impl UciEngine {
             .await
             .context("读取引擎输出失败")?;
 
-        log_info!(format!("引擎响应: {}", response.trim()));
+        log_info!(response);
 
         Ok(response)
     }
@@ -197,6 +179,15 @@ impl EngineProtocol for UciEngine {
         self.send_command("stop").await
     }
 
+    async fn set_option(&mut self, name: &str, value: Option<&str>) -> Result<()> {
+        let command: String = match value {
+            Some(v) => format!("setoption name {} value {}", name, v),
+            None => format!("setoption name {}", name),
+        };
+        
+        self.send_command(&command).await
+    }
+
     async fn quit(&mut self) -> Result<()> {
         self.send_command("quit").await?;
         
@@ -207,9 +198,5 @@ impl EngineProtocol for UciEngine {
         self.process.kill().await?;
         
         Ok(())
-    }
-
-    async fn send_command(&mut self, command: &str) -> Result<()> {
-        self.send_command(command).await
     }
 }

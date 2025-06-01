@@ -1,6 +1,6 @@
 pub type Result<T> = anyhow::Result<T>;
 pub use anyhow::{Context, anyhow};
-pub use hashbrown::{HashMap, HashSet};
+pub use hashbrown::HashMap;
 pub use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdin, Lines, stdin},
@@ -10,7 +10,7 @@ pub use tokio::{
     spawn, select
 };
 pub use crossterm::{
-    cursor::{Hide, MoveTo, Show},
+    cursor::{MoveTo, Show},
     event::{DisableMouseCapture, EnableMouseCapture, read, Event, KeyCode},
     execute,
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor, Stylize, StyledContent},

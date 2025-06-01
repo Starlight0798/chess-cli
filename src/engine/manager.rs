@@ -1,26 +1,19 @@
 use crate::utils::*;
-use crate::engine::protocol::*;
+use crate::engine::{EngineType, EngineProtocol, UciEngine};
 
 /// 引擎配置
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
-    /// 引擎名称
-    pub name: EngineType,
-    
-    /// 通信协议 (如 uci)
-    pub protocol: EngineProtocolType,
-    
     /// 引擎可执行文件路径
     pub path: String,
+    /// 引擎默认选项
+    pub options: HashMap<String, Option<String>>,
 }
 
 /// 引擎管理器
 pub struct EngineManager {
-    /// 所有引擎配置
-    engines: HashMap<EngineType, EngineConfig>,
-    
-    /// 默认引擎名称
-    default_engine: EngineType,
+    /// 引擎配置
+    pub engines: HashMap<EngineType, EngineConfig>,
 }
 
 impl EngineManager {
@@ -39,30 +32,16 @@ impl EngineManager {
 
         log_info!(config);
         
-        // 提取默认引擎
-        let default_engine_str: &str = config.get("default")
-            .ok_or_else(|| anyhow!("配置文件缺少 'default' 部分"))?
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("默认配置缺少 'name' 字段"))?;
-        let default_engine: EngineType = EngineType::from_str(default_engine_str)?;
-
-        log_info!(default_engine);
-        
         // 创建引擎映射
         let mut engines: HashMap<EngineType, EngineConfig> = HashMap::new();
-        for item in config.as_table().unwrap().values() {
-            let name = item.get("name")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("引擎配置缺少 'name' 字段"))?;
-            engines.insert(EngineType::from_str(name)?, EngineConfig::try_from(item.clone())?);
+        for (key, value) in config.as_table().unwrap() {
+            engines.insert(EngineType::from_str(key)?, EngineConfig::try_from(value.clone())?);
         }
 
         log_info!(engines);
 
         Ok(Self {
-            engines,
-            default_engine,
+            engines
         })
     }
     
@@ -127,24 +106,26 @@ impl EngineManager {
     }
     
     /// 创建引擎协议实例
-    pub fn create_engine_instance(&self, engine_type: &EngineType) -> Result<Box<dyn EngineProtocol>> {
+    pub async fn create_engine_instance(&self, engine_type: &EngineType) -> Result<Box<dyn EngineProtocol>> {
         let config: &EngineConfig = self.get_config(engine_type)?;
-
-        // 根据协议类型创建引擎
-        match config.protocol {
-            EngineProtocolType::Uci => {
-                // 解析路径中的环境变量
-                let engine_path: String = Self::resolve_path(&config.path)?;
-                
-                // 创建引擎
-                let engine: Box<dyn EngineProtocol> = match config.name {
-                    EngineType::Pikafish => {
-                        Box::new(UciEngine::new(&engine_path)?)
-                    },
-                };
-                Ok(engine)
+        // 解析路径中的环境变量
+        let engine_path: String = Self::resolve_path(&config.path)?;
+        // 创建引擎实例
+        let mut engine: Box<dyn EngineProtocol> = match engine_type {
+            EngineType::Pikafish => {
+                Box::new(UciEngine::new(&engine_path)?)
             }
+        };
+        
+        // 初始化引擎
+        engine.init().await?;
+        
+        // 应用默认选项
+        for (name, value) in &config.options {
+            engine.set_option(name, value.as_deref()).await?;
         }
+        
+        Ok(engine)
     }
     
     /// 解析路径中的环境变量
@@ -177,17 +158,26 @@ impl TryFrom<toml::Value> for EngineConfig {
         let table: &toml::map::Map<String, toml::Value> = value.as_table()
             .ok_or_else(|| anyhow!("引擎配置应为表结构"))?;
         
-        Ok(EngineConfig {
-            name: EngineType::from_str(table.get("name")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("引擎配置缺少 'name' 字段"))?)?,
-            protocol: EngineProtocolType::from_str(table.get("protocol")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("引擎配置缺少 'protocol' 字段"))?)?,
-            path: table.get("path")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("引擎配置缺少 'path' 字段"))?
-                .to_string(),
-        })
+        let path: String = table.get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("引擎配置缺少 'path' 字段"))?
+            .to_string();
+        
+        // 解析选项
+        let mut options: HashMap<String, Option<String>> = HashMap::new();
+        if let Some(options_table) = table.get("options").and_then(|v| v.as_table()) {
+            for (key, value) in options_table {
+                // 值为空字符串表示无值选项
+                if let Some(val_str) = value.as_str() {
+                    if val_str.is_empty() {
+                        options.insert(key.clone(), None);
+                    } else {
+                        options.insert(key.clone(), Some(val_str.to_string()));
+                    }
+                }
+            }
+        }
+        
+        Ok(EngineConfig { path, options })
     }
 }

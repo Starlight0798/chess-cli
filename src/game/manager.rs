@@ -1,6 +1,7 @@
 use crate::{
     engine::protocol::EngineProtocol,
     game::state::{GameState, PlayerColor},
+    game::fen::FenProcessor,
 };
 use crate::utils::*;
 
@@ -9,9 +10,9 @@ pub struct GameManager {
     /// 游戏状态
     pub state: GameState,
     /// 引擎实例
-    engine: Box<dyn EngineProtocol>,
+    pub engine: Box<dyn EngineProtocol>,
     /// 当前思考任务通道
-    think_task: Option<UnboundedSender<()>>,
+    pub think_task: Option<UnboundedSender<()>>,
 }
 
 impl GameManager {
@@ -25,15 +26,22 @@ impl GameManager {
     }
     
     /// 开始新游戏
-    pub async fn start_new_game(&mut self, player_color: PlayerColor) -> Result<()> {
+    pub async fn start_new_game(&mut self, player_color: PlayerColor, fen: Option<String>) -> Result<()> {
         // 重置游戏状态
-        self.state.reset();
+        self.state = if let Some(fen_str) = fen {
+            FenProcessor::parse_fen(&fen_str)?
+        } else {
+            GameState::new()
+        };
+        
+        // 重置引擎状态
+        self.engine.set_option("Clear Hash", None).await?;
         
         // 设置初始位置
         self.engine.set_position(&self.state.to_fen()).await?;
         
-        // 如果玩家选择黑方，引擎先走
-        if player_color == PlayerColor::Black {
+        // 如果目前局面引擎先走
+        if player_color.opponent() == self.state.current_player {
             self.engine_move().await?;
         }
         
@@ -48,21 +56,19 @@ impl GameManager {
         // 更新引擎位置
         self.engine.set_position(&self.state.to_fen()).await?;
         
-        // 引擎思考并走子
-        self.engine_move().await?;
-        
         Ok(())
     }
     
     /// 引擎思考并走子
-    async fn engine_move(&mut self) -> Result<()> {
+    pub async fn engine_move(&mut self) -> Result<()> {
         // 创建中断通道
         let (tx, mut rx) = unbounded_channel();
         self.think_task = Some(tx);
 
         // 直接异步等待引擎走子或中断
+        const MAX_THINK_TIME: usize = 5000;
         let result: Result<Result<String>> = select! {
-            best_move = self.engine.go(Some(3000)) => Ok(best_move),
+            best_move = self.engine.go(Some(MAX_THINK_TIME)) => Ok(best_move),
             _ = rx.recv() => Ok(Err(anyhow!("思考被中断"))),
         };
 
@@ -78,20 +84,6 @@ impl GameManager {
 
         self.think_task = None;
         Ok(())
-    }
-    
-    /// 停止引擎思考并获取最佳着法
-    pub async fn stop_and_get_bestmove(&mut self) -> Result<String> {
-        if let Some(tx) = self.think_task.take() {
-            // 中断思考
-            let _ = tx.send(());
-            
-            // 获取当前最佳着法
-            self.engine.stop().await?;
-            self.engine.go(Some(100)).await  // ms思考
-        } else {
-            Err(anyhow!("引擎当前没有在思考"))
-        }
     }
     
     /// 退出游戏

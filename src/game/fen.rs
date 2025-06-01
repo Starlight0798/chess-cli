@@ -1,5 +1,5 @@
 use crate::utils::*;
-use super::state::{GameState, PlayerColor, Piece, PieceKind};
+use crate::game::{GameState, PlayerColor, Piece, PieceKind};
 
 /// 处理FEN字符串的解析和生成
 pub struct FenProcessor;
@@ -7,6 +7,7 @@ pub struct FenProcessor;
 impl FenProcessor {
     /// 解析FEN字符串，创建游戏状态
     pub fn parse_fen(fen: &str) -> Result<GameState> {
+        log_info!(fen);
         let parts: Vec<&str> = fen.split_whitespace().collect();
         if parts.len() < 2 {
             return Err(anyhow!("FEN字符串至少包括两部分: 棋盘状态和当前玩家"));

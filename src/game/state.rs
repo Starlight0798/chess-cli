@@ -1,5 +1,5 @@
 use crate::utils::*;
-use super::fen::FenProcessor;
+use crate::game::FenProcessor;
 
 /// 玩家颜色
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,9 +24,9 @@ pub enum PieceKind {
     General,   // 将/帅
     Advisor,   // 士/仕
     Elephant,  // 象/相
-    Horse,     // 马/傌
-    Rook,      // 车/俥
-    Cannon,    // 炮/炮
+    Horse,     // 马
+    Rook,      // 车
+    Cannon,    // 炮
     Pawn,      // 兵/卒
 }
 
@@ -72,7 +72,6 @@ impl GameState {
     pub fn apply_move(&mut self, move_str: &str) -> Result<()> {
         // 将走法字符串转换为坐标
         let (from, to) = Self::parse_move(move_str)?;
-        log_info!(self.current_player, move_str, from, to);
         
         // 检查起始位置是否有棋子
         let piece: Piece = self.board[from.row][from.col]
@@ -84,6 +83,11 @@ impl GameState {
         }
         
         // TODO: 添加走法规则验证
+
+        // 记录走法
+        let chinese_move: String = self.move_to_chinese(&move_str)?;
+        log_info!(self.current_player, move_str, chinese_move, from, to);
+        self.history.push(chinese_move);
         
         // 执行移动：将棋子移动到目标位置，起始位置置空
         self.board[to.row][to.col] = Some(piece);
@@ -91,9 +95,6 @@ impl GameState {
         
         // 切换玩家
         self.current_player = self.current_player.opponent();
-        
-        // 记录走法
-        self.history.push(move_str.to_string());
         
         Ok(())
     }
@@ -139,10 +140,88 @@ impl GameState {
     pub fn to_fen(&self) -> String {
         FenProcessor::generate_fen(self)
     }
+
+    /// 将走法转换为中文表示
+    /// 例如: "e2h2" -> "炮二平五"
+    pub fn move_to_chinese(&self, move_str: &str) -> Result<String> {
+        let (from, to) = Self::parse_move(move_str)?;
+        
+        // 获取起始位置的棋子
+        let piece: Piece = self.board[from.row][from.col]
+            .ok_or_else(|| anyhow!("起始位置没有棋子"))?;
+        
+        // 获取棋子中文名称
+        let piece_name: &'static str = piece.get_chinese_name();
+
+        // 中文和数字列名
+        const ZH_LIST: [&str; 9] = ["九", "八", "七", "六", "五", "四", "三", "二", "一"];
+        const DIG_LIST: [&str; 9] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+        let from_col_name: &str = match self.current_player {
+            PlayerColor::Red => ZH_LIST[from.col],
+            PlayerColor::Black => DIG_LIST[from.col],
+        };
+        let move_type: &str;
+        let move_detail: &str;
+
+        // 平
+        if from.row == to.row {
+            move_type = "平";
+            move_detail = match self.current_player {
+                PlayerColor::Red => ZH_LIST[to.col],
+                PlayerColor::Black => DIG_LIST[to.col],
+            };
+        }
+        // 进 退
+        else {
+            move_type = match self.current_player {
+                PlayerColor::Red => if from.row < to.row { "进" } else { "退" },
+                PlayerColor::Black => if from.row > to.row { "进" } else { "退" },
+            };
+            // 按进退步数
+            if from.col == to.col {
+                let diff: usize = (from.row as isize - to.row as isize).abs() as usize;
+                move_detail = match self.current_player {
+                    PlayerColor::Red => ZH_LIST[9 - diff],
+                    PlayerColor::Black => DIG_LIST[diff - 1],
+                };
+            }
+            // 按列名
+            else {
+                move_detail = match self.current_player {
+                    PlayerColor::Red => ZH_LIST[to.col],
+                    PlayerColor::Black => DIG_LIST[to.col],
+                };
+            }
+        }
+        
+        Ok(format!("{}{}{}{}", piece_name, from_col_name, move_type, move_detail))
+    }
 }
 
 impl Default for GameState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Piece {
+    pub fn get_chinese_name(&self) -> &'static str {
+        match (self.color, self.kind) {
+            (PlayerColor::Red, PieceKind::General) => "帅",
+            (PlayerColor::Red, PieceKind::Advisor) => "仕",
+            (PlayerColor::Red, PieceKind::Elephant) => "相",
+            (PlayerColor::Red, PieceKind::Horse) => "马",
+            (PlayerColor::Red, PieceKind::Rook) => "车",
+            (PlayerColor::Red, PieceKind::Cannon) => "炮",
+            (PlayerColor::Red, PieceKind::Pawn) => "兵",
+            (PlayerColor::Black, PieceKind::General) => "将",
+            (PlayerColor::Black, PieceKind::Advisor) => "士",
+            (PlayerColor::Black, PieceKind::Elephant) => "象",
+            (PlayerColor::Black, PieceKind::Horse) => "马",
+            (PlayerColor::Black, PieceKind::Rook) => "车",
+            (PlayerColor::Black, PieceKind::Cannon) => "炮",
+            (PlayerColor::Black, PieceKind::Pawn) => "卒",
+        }
     }
 }

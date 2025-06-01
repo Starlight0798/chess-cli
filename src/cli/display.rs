@@ -1,18 +1,20 @@
-use crate::game::state::{GameState, PlayerColor, Piece, PieceKind, Position};
+use crate::game::{GameManager, GameState, PlayerColor, Piece, PieceKind, Position};
 use crate::utils::*;
 
 /// 棋盘显示尺寸
 pub const BOARD_WIDTH: u16 = 9 * 4 + 1;  // 9列 * 4字符 + 边框
 pub const BOARD_HEIGHT: u16 = 10 * 2 + 1; // 10行 * 2行高 + 边框
 pub const INPUT_AREA_Y: u16 = BOARD_HEIGHT + 3; // 输入区域起始位置
+pub const INFO_PANEL_WIDTH: u16 = 100;           // 右侧信息面板宽度
+pub const INFO_START_COL: u16 = BOARD_WIDTH + 4; // 信息面板起始列
 
 /// 棋盘坐标标签
 pub const COL_LABELS: [char; 9] = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
 pub const ROW_LABELS: [char; 10] = ['9', '8', '7', '6', '5', '4', '3', '2', '1', '0'];
 
 /// 棋子符号
-pub const RED_PIECES: [char; 7] = ['将', '士', '相', '马', '车', '炮', '兵'];
-pub const BLACK_PIECES: [char; 7] = ['帅', '仕', '象', '傌', '俥', '砲', '卒'];
+pub const RED_PIECES: [char; 7] = ['帅', '仕', '相', '马', '车', '炮', '兵'];
+pub const BLACK_PIECES: [char; 7] = ['将', '士', '象', '马', '车', '炮', '卒'];
 
 /// 颜色主题
 pub struct Theme {
@@ -35,20 +37,65 @@ impl Default for Theme {
     }
 }
 
-/// 渲染整个棋盘界面
-pub fn render_board(state: &GameState) -> Result<()> {
-    // 仅清除棋盘区域
-    for y in 0..=BOARD_HEIGHT {
-        execute!(
-            stdout(),
-            MoveTo(0, y),
-            Clear(ClearType::CurrentLine)
-        )?;
+/// 将文本分割为适合面板宽度的行，尊重显式换行符
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    
+    // 首先按显式换行符分割文本
+    for paragraph in text.split('\n') {
+        let mut current_line: String = String::new();
+        
+        for word in paragraph.split_whitespace() {
+            // 检查添加当前单词是否会超过宽度
+            let potential_length: usize = if current_line.is_empty() {
+                word.len()
+            } else {
+                current_line.len() + 1 + word.len()
+            };
+            
+            if potential_length > width {
+                // 当前行已满，添加到结果中
+                if !current_line.is_empty() {
+                    lines.push(current_line);
+                    current_line = String::new();
+                }
+                
+                // 处理超长单词（强制分割）
+                if word.len() > width {
+                    let mut remaining = word;
+                    while !remaining.is_empty() {
+                        let split_point = width.min(remaining.len());
+                        let (part, rest) = remaining.split_at(split_point);
+                        lines.push(part.to_string());
+                        remaining = rest;
+                    }
+                    continue;
+                }
+            }
+            
+            // 添加单词到当前行
+            if !current_line.is_empty() {
+                current_line.push(' ');
+            }
+            current_line.push_str(word);
+        }
+        
+        // 添加剩余的段落内容
+        if !current_line.is_empty() {
+            lines.push(current_line);
+        }
+        
+        // 添加显式换行符后的空行（如果需要）
+        if paragraph.is_empty() {
+            lines.push(String::new());
+        }
     }
     
-    // 清屏
-    execute!(stdout(), Clear(ClearType::All))?;
-    
+    lines
+}
+
+/// 渲染棋盘画面
+pub fn render_board(state: &GameState) -> Result<()> {
     // 绘制棋盘边框
     draw_board_frame()?;
     
@@ -61,10 +108,44 @@ pub fn render_board(state: &GameState) -> Result<()> {
     }
     
     // 绘制坐标标签
-    draw_coordinate_labels()?;
+    draw_coordinate_labels()?;      
+
+    Ok(())
+}
+
+/// 渲染整个棋盘界面
+pub fn render_view(game_manager: Option<&GameManager>) -> Result<()> {
+    // 清屏
+    execute!(stdout(), Clear(ClearType::All))?;
     
-    // 绘制状态信息
-    draw_status_bar(state)?;
+    // 清空右侧信息区域
+    for y in 0..=BOARD_HEIGHT {
+        execute!(
+            stdout(),
+            MoveTo(INFO_START_COL, y),
+            Clear(ClearType::UntilNewLine),
+        )?;
+    }
+    
+    // 如果有游戏状态，绘制棋盘和状态信息
+    if let Some(game) = game_manager {
+        // 绘制棋盘
+        render_board(&game.state)?;
+        
+        // 绘制状态信息
+        draw_status_bar(&game.state)?;
+        
+        // 如果引擎正在思考，显示提示
+        if game.think_task.is_some() {
+            execute!(
+                stdout(),
+                MoveTo(INFO_START_COL, 2),
+                SetForegroundColor(Color::Blue),
+                Print("引擎思考中..."),
+                ResetColor
+            )?;
+        }
+    }
     
     // 绘制命令提示
     draw_command_prompt()?;
@@ -246,33 +327,40 @@ fn draw_coordinate_labels() -> Result<()> {
 /// 绘制状态栏
 fn draw_status_bar(state: &GameState) -> Result<()> {
     let theme: Theme = Theme::default();
-    let status_y: u16 = INPUT_AREA_Y;
+    // 状态栏移到右侧顶部
+    let status_y: u16 = 0;
     
     // 当前玩家
-    let player_text: StyledContent<&str> = match state.current_player {
-        PlayerColor::Red => "红方回合".red(),
-        PlayerColor::Black => "黑方回合".dark_yellow(),  // 使用深黄色
+    let player_text: StyledContent<String> = match state.current_player {
+        PlayerColor::Red => "红方回合".to_string().red(),
+        PlayerColor::Black => "黑方回合".to_string().dark_yellow(),
     };
     
-    // 历史记录
+    // 历史记录 - 限制长度
     let history_text: String = if state.history.is_empty() {
         "无历史记录".to_string()
     } else {
-        format!("最后一步: {}", state.history.last().unwrap())
+        let last_move: &String = state.history.last().unwrap();
+        if last_move.len() > INFO_PANEL_WIDTH as usize - 10 {
+            format!("最后一步: {}...", &last_move[..INFO_PANEL_WIDTH as usize - 10])
+        } else {
+            format!("最后一步: {}", last_move)
+        }
     };
     
     // 绘制状态信息
     execute!(
         stdout(),
-        MoveTo(0, status_y),
+        MoveTo(INFO_START_COL, status_y),
         SetForegroundColor(theme.board_fg),
         Print(player_text),
-        MoveTo(20, status_y),
+        MoveTo(INFO_START_COL, status_y + 1),
         Print(history_text)
     )?;
     
     Ok(())
 }
+
 
 /// 绘制命令提示
 fn draw_command_prompt() -> Result<()> {
@@ -281,7 +369,7 @@ fn draw_command_prompt() -> Result<()> {
     execute!(
         stdout(),
         MoveTo(0, prompt_y),
-        Print("命令: new <引擎> <红|黑> | move <走法> | stop | board | quit\n")
+        Print("命令: help 查看帮助 | 输入命令后按回车执行"),
     )?;
     Ok(())
 }
@@ -306,62 +394,221 @@ fn board_to_screen(pos: Position) -> (u16, u16) {
     (x, y)
 }
 
-/// 显示最佳着法
-pub fn show_best_move(best_move: &str) -> Result<()> {
+/// 清空消息区域（不包括输入行）
+pub fn clear_message_area() -> Result<()> {
+    // 清除错误消息区域（棋盘底部）
+    for i in 0..3 {
+        execute!(
+            stdout(),
+            MoveTo(0, BOARD_HEIGHT + i),
+            Clear(ClearType::CurrentLine)
+        )?;
+    }
+    
+    // 清除右侧信息面板中部区域（保留状态栏）
+    for y in 3..BOARD_HEIGHT - 2 {
+        execute!(
+            stdout(),
+            MoveTo(INFO_START_COL, y),
+            Clear(ClearType::CurrentLine)
+        )?;
+    }
+    
+    stdout().flush()?;
+    Ok(())
+}
+
+
+/// 显示欢迎信息
+pub fn show_welcome() -> Result<()> {
+    // 在右侧面板显示欢迎信息
+    let title: &'static str = "中国象棋终端对弈系统";
+    let subtitle: &'static str = "输入 'help' 查看命令帮助";
+    
     execute!(
         stdout(),
-        MoveTo(0, INPUT_AREA_Y + 1),
-        Clear(ClearType::CurrentLine),
-        SetForegroundColor(Color::Green),
-        Print(format!("引擎推荐: {}\n", best_move)),
+        MoveTo(INFO_START_COL, 0),
+        SetForegroundColor(Color::Cyan),
+        Print(title),
+        MoveTo(INFO_START_COL, 1),
+        SetForegroundColor(Color::Yellow),
+        Print(subtitle),
         ResetColor
     )?;
+    
     stdout().flush()?;
+
+    let _ = reset_input_prompt();
+
+    Ok(())
+}
+
+
+/// 显示帮助信息
+pub fn show_help() -> Result<()> {
+    let help_text: &'static str = "可用命令:
+    new <引擎> <red|black> [FEN] - 开始新游戏
+    move <走法> - 走子(如'h2e2')
+    board - 重新显示棋盘
+    history - 显示走子历史
+    set <参数> <值> - 设置引擎参数
+    listengines - 列出所有可用引擎
+    help - 显示帮助
+    quit - 退出程序";
+    
+    // 将帮助文本分割为多行
+    let lines: Vec<String> = wrap_text(help_text, INFO_PANEL_WIDTH as usize - 2);
+    
+    // 在右侧信息面板显示帮助
+    execute!(
+        stdout(),
+        MoveTo(INFO_START_COL, 3),
+        Print("命令帮助:"),
+    )?;
+    
+    for (i, line) in lines.iter().enumerate() {
+        execute!(
+            stdout(),
+            MoveTo(INFO_START_COL, 4 + i as u16),
+            Print(line),
+        )?;
+    }
+    
+    stdout().flush()?;
+
+    let _ = reset_input_prompt();
+
+    Ok(())
+}
+
+/// 显示引擎列表
+pub fn show_engines(engines: &[String]) -> Result<()> {
+    execute!(
+        stdout(),
+        MoveTo(INFO_START_COL, 3),
+        Print("可用引擎:"),
+    )?;
+    
+    for (i, engine) in engines.iter().enumerate() {
+        // 限制显示长度
+        let display_engine = if engine.len() > INFO_PANEL_WIDTH as usize - 6 {
+            format!("{}...", &engine[..INFO_PANEL_WIDTH as usize - 6])
+        } else {
+            engine.clone()
+        };
+        
+        execute!(
+            stdout(),
+            MoveTo(INFO_START_COL, 4 + i as u16),
+            Print(format!("  {}. {}", i + 1, display_engine)),
+        )?;
+    }
+    
+    stdout().flush()?;
+
+    let _ = reset_input_prompt();
+
+    Ok(())
+}
+
+/// 显示历史记录
+pub fn show_history(history: &[String]) -> Result<()> {
+    if history.is_empty() {
+        return show_message("没有走子历史");
+    }
+
+    execute!(
+        stdout(),
+        MoveTo(INFO_START_COL, 3),
+        Print("走子历史:"),
+    )?;
+    
+    for (i, move_str) in history.iter().enumerate() {
+        // 最多显示10条历史记录
+        if i >= 10 {
+            break;
+        }
+        
+        execute!(
+            stdout(),
+            MoveTo(INFO_START_COL, 4 + i as u16),
+            Print(format!("  {}. {}", i + 1, move_str)),
+        )?;
+    }
+    
+    stdout().flush()?;
+
+    let _ = reset_input_prompt();
+
+    Ok(())
+}
+
+/// 显示普通消息
+pub fn show_message(msg: &str) -> Result<()> {
+    // 将消息分割为多行
+    let lines: Vec<String> = wrap_text(msg, INFO_PANEL_WIDTH as usize - 2);
+    
+    for (i, line) in lines.iter().enumerate() {
+        execute!(
+            stdout(),
+            MoveTo(INFO_START_COL, 3 + i as u16),
+            Print(line),
+        )?;
+    }
+    
+    stdout().flush()?;
+
+    let _ = reset_input_prompt();
+
     Ok(())
 }
 
 /// 显示错误消息
 pub fn show_error(msg: &str) -> Result<()> {
-    execute!(
-        stdout(),
-        MoveTo(0, INPUT_AREA_Y + 1),
-        Clear(ClearType::CurrentLine),
-        SetForegroundColor(Color::Red),
-        Print(format!("错误: {}\n", msg)),
-        ResetColor
-    )?;
-    stdout().flush()?;
-    Ok(())
-}
 
-/// 清空消息区域
-pub fn clear_message_area() -> Result<()> {
-    for i in 0..3 {
+    // 在信息面板底部显示错误消息
+    let error_y: u16 = BOARD_HEIGHT - 2;
+    
+    // 将错误消息分割为多行
+    let lines: Vec<String> = wrap_text(&format!("错误: {}", msg), INFO_PANEL_WIDTH as usize - 2);
+    
+    for (i, line) in lines.iter().enumerate() {
         execute!(
             stdout(),
-            MoveTo(0, INPUT_AREA_Y + i),
-            Clear(ClearType::CurrentLine)
+            MoveTo(INFO_START_COL, error_y + i as u16),
+            SetForegroundColor(Color::Red),
+            Print(line),
         )?;
     }
+    
+    execute!(stdout(), ResetColor)?;
     stdout().flush()?;
+
+    let _ = reset_input_prompt();
     Ok(())
 }
 
-/// 显示欢迎信息
-pub fn show_welcome() -> Result<()> {
+
+/// 显示设置成功消息
+pub fn show_set_success(name: &str, value: Option<&str>) -> Result<()> {
+    let msg: String = match value {
+        Some(v) => format!("设置成功: {} = {}", name, v),
+        None => format!("设置成功: {}", name),
+    };
+    show_message(&msg)
+}
+
+/// 重置输入提示符
+pub fn reset_input_prompt() -> Result<()> {
     execute!(
         stdout(),
-        Clear(ClearType::All),
-        MoveTo(0, 0),
-        SetForegroundColor(Color::Cyan),
-        Print("中国象棋终端对弈系统"),
-        MoveTo(0, 1),
-        SetForegroundColor(Color::Yellow),
-        Print("使用命令控制游戏: new, move, stop, board, quit"),
-        MoveTo(0, 2),
-        Print("输入命令后按回车执行，棋盘下方会显示输入和结果"),
-        ResetColor
+        MoveTo(0, INPUT_AREA_Y),
+        Clear(ClearType::CurrentLine),
+        Print("> "),
+        Show
     )?;
     stdout().flush()?;
     Ok(())
 }
+
+
