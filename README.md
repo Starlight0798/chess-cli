@@ -7,7 +7,7 @@
     - [皮卡鱼](https://www.pikafish.com/)
 
 # License
-本项目采用[MIT](LICENSE)协议开源。
+本项目采用[GPL-3.0 license](LICENSE)协议开源。
 
 # TODO
 - [ ] 支持更多引擎
