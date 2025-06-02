@@ -71,6 +71,7 @@ pub async fn run_interactive_loop() -> Result<()> {
                     display::render_view(game_manager.as_ref())?;
                     
                     if let Some(game) = &mut game_manager {
+                        display::show_message("引擎正在思考...")?;
                         if let Err(e) = game.engine_move().await {
                             display::show_error(&e.to_string())?;
                             continue;

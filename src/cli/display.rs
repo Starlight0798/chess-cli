@@ -1,4 +1,4 @@
-use crate::game::{GameManager, GameState, PlayerColor, Piece, PieceKind, Position};
+use crate::game::{FenProcessor, GameManager, GameState, Piece, PieceKind, PlayerColor, Position};
 use crate::engine::{EngineProtocol, EngineThinkingInfo};
 use crate::utils::*;
 
@@ -137,7 +137,7 @@ pub fn render_view(game_manager: Option<&GameManager>) -> Result<()> {
         draw_status_bar(&game.state)?;
         
         // 绘制思考信息
-        if let Some(info) = game.get_last_think_info() {
+        if let Some(info) = game.think_info.as_ref() {
             draw_think_info(&info)?;
         }
     }
@@ -152,7 +152,7 @@ pub fn render_view(game_manager: Option<&GameManager>) -> Result<()> {
 
 /// 绘制思考信息
 fn draw_think_info(info: &EngineThinkingInfo) -> Result<()> {
-    let info_lines: Vec<String> = format_think_info(&info);
+    let info_lines: Vec<String> = format_think_info(&info)?;
     let start_y: u16 = 4;
     let color: Color = if let Some(score) = info.score {
         if score >= 0 {
@@ -652,7 +652,7 @@ pub fn reset_input_prompt() -> Result<()> {
 }
 
 /// 格式化思考信息为多行文本
-fn format_think_info(info: &EngineThinkingInfo) -> Vec<String> {
+pub fn format_think_info(info: &EngineThinkingInfo) -> Result<Vec<String>> {
     let mut lines: Vec<String> = Vec::new();
     
     // 第一行：基本指标
@@ -674,11 +674,8 @@ fn format_think_info(info: &EngineThinkingInfo) -> Vec<String> {
     
     // 第二行：主要变例
     if let Some(pv) = &info.pv {
-        lines.push(format!("PV: {}", pv));
+        lines.push(format!("PV: {}", pv.join(" ")));
     }
-    
-    lines
+
+    Ok(lines)
 }
-
-
-

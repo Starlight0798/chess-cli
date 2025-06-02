@@ -75,16 +75,8 @@ impl GameState {
         // 将走法字符串转换为坐标
         let (from, to) = Self::parse_move(move_str)?;
         
-        // 检查起始位置是否有棋子
-        let piece: Piece = self.board[from.row][from.col]
-            .ok_or_else(|| anyhow!("起始位置没有棋子"))?;
-        
-        // 检查棋子颜色是否与当前玩家一致   
-        if piece.color != self.current_player {
-            return Err(anyhow!("不能移动对方的棋子"));
-        }
-        
-        // TODO: 添加走法规则验证
+        // 合法性检查
+        self.is_valid_move(from, to)?;
 
         // 记录走法
         let chinese_move: String = self.move_to_chinese(&move_str)?;
@@ -92,7 +84,7 @@ impl GameState {
         self.history.push(chinese_move);
         
         // 执行移动：将棋子移动到目标位置，起始位置置空
-        self.board[to.row][to.col] = Some(piece);
+        self.board[to.row][to.col] = self.board[from.row][from.col];
         self.board[from.row][from.col] = None;
         
         // 切换玩家
@@ -137,6 +129,229 @@ impl GameState {
         
         Ok((Position { col: from_x, row: from_y }, Position { col: to_x, row: to_y }))
     }
+
+    /// 走法合法性验证
+    pub fn is_valid_move(&self, from: Position, to: Position) -> Result<()> {
+        // 检查起始位置是否有棋子
+        let piece: Piece = self.board[from.row][from.col]
+            .ok_or_else(|| anyhow!("起始位置没有棋子"))?;
+        
+        // 检查棋子颜色是否与当前玩家一致   
+        if piece.color != self.current_player {
+            return Err(anyhow!("不能移动对方的棋子"));
+        }
+
+        // 检查目标位置是否有己方棋子
+        if let Some(target_piece) = self.board[to.row][to.col] {
+            if target_piece.color == self.current_player {
+                return Err(anyhow!("目标位置已有己方棋子"));
+            }
+        }
+
+        // 根据棋子种类检查
+        match piece.kind {
+            // 将/帅
+            PieceKind::General => {
+                // 将帅只能在九宫内移动
+                match self.current_player {
+                    PlayerColor::Red => {
+                        if to.row > 2 || to.col < 3 || to.col > 5 {
+                            return Err(anyhow!("帅只能在九宫内移动"));
+                        }
+                    },
+                    PlayerColor::Black => {
+                        if to.row < 7 || to.col < 3 || to.col > 5 {
+                            return Err(anyhow!("将只能在九宫内移动"));
+                        }
+                    },
+                }
+                // 将帅只能横向或纵向移动一步
+                if (from.row != to.row && from.col != to.col)
+                    || (from.row == to.row && (from.col as isize - to.col as isize).abs() > 1)
+                    || (from.col == to.col && (from.row as isize - to.row as isize).abs() > 1)
+                {
+                    return Err(anyhow!("将帅只能横向或纵向移动一步"));
+                }
+            },
+            // 士/仕
+            PieceKind::Advisor => {
+                // 士/仕只能在九宫内移动
+                match self.current_player {
+                    PlayerColor::Red => {
+                        if to.row > 2 || to.col < 3 || to.col > 5 {
+                            return Err(anyhow!("仕只能在九宫内移动"));
+                        }
+                    },
+                    PlayerColor::Black => {
+                        if to.row < 7 || to.col < 3 || to.col > 5 {
+                            return Err(anyhow!("士只能在九宫内移动"));
+                        }
+                    },
+                }
+                // 士/仕只能斜向移动一步
+                if (from.row as isize - to.row as isize).abs() != 1
+                    || (from.col as isize - to.col as isize).abs() != 1
+                {
+                    return Err(anyhow!("士/仕只能斜向移动一步"));
+                }
+            },
+            // 象/相
+            PieceKind::Elephant => {
+                // 象/相不能过河
+                match self.current_player {
+                    PlayerColor::Red => {
+                        if to.row > 4 {
+                            return Err(anyhow!("相不能过河"));
+                        }
+                    },
+                    PlayerColor::Black => {
+                        if to.row < 5 {
+                            return Err(anyhow!("象不能过河"));
+                        }
+                    },
+                }
+                // 象/相只能斜向移动两步
+                if (from.row as isize - to.row as isize).abs() != 2
+                    || (from.col as isize - to.col as isize).abs() != 2
+                {
+                    return Err(anyhow!("象/相只能斜向移动两步"));
+                }
+                // 检查象/相是否被挡
+                let mid_row: usize = (from.row + to.row) / 2;
+                let mid_col: usize = (from.col + to.col) / 2;
+                if self.board[mid_row][mid_col].is_some() {
+                    return Err(anyhow!("象/相的路径被挡"));
+                }
+            },
+            // 马
+            PieceKind::Horse => {
+                // 马只能走日字形
+                if !((from.row as isize - to.row as isize).abs() == 2 && (from.col as isize - to.col as isize).abs() == 1)
+                    && !((from.row as isize - to.row as isize).abs() == 1 && (from.col as isize - to.col as isize).abs() == 2)
+                {
+                    return Err(anyhow!("马只能走日字形"));
+                }
+                // 检查马腿是否被挡
+                let row_diff: usize = (from.row as isize - to.row as isize).abs() as usize;
+                let col_diff: usize = (from.col as isize - to.col as isize).abs() as usize;
+                let leg_row: usize = if row_diff == 2 { (to.row + from.row) / 2 } else { from.row };
+                let leg_col: usize = if col_diff == 2 { (to.col + from.col) / 2 } else { from.col };
+                if self.board[leg_row][leg_col].is_some() {
+                    return Err(anyhow!("马腿被挡"));
+                }
+            },
+            // 车
+            PieceKind::Rook => {
+                // 车可以横向或者纵向移动
+                if from.row != to.row && from.col != to.col {
+                    return Err(anyhow!("车只能横向或纵向移动"));
+                }
+                // 检查中间路径是否被挡
+                if from.row == to.row {
+                    // 横向移动
+                    let start_col: usize = from.col.min(to.col);
+                    let end_col: usize = from.col.max(to.col);
+                    for col in (start_col + 1)..end_col {
+                        if self.board[from.row][col].is_some() {
+                            return Err(anyhow!("车的路径被挡"));
+                        }
+                    }
+                } 
+                else {
+                    // 纵向移动
+                    let start_row: usize = from.row.min(to.row);
+                    let end_row: usize = from.row.max(to.row);
+                    for row in (start_row + 1)..end_row {
+                        if self.board[row][from.col].is_some() {
+                            return Err(anyhow!("车的路径被挡"));
+                        }
+                    }
+                };
+            },
+            // 炮
+            PieceKind::Cannon => {
+                // 炮可以横向或者纵向移动
+                if from.row != to.row && from.col != to.col {
+                    return Err(anyhow!("炮只能横向或纵向移动"));
+                }
+                
+                // 检查中间路径的棋子数量
+                let mut obstacle_count: usize = 0;
+                if from.row == to.row {
+                    // 横向移动
+                    let start_col: usize = from.col.min(to.col);
+                    let end_col: usize = from.col.max(to.col);
+                    for col in (start_col + 1)..end_col {
+                        if self.board[from.row][col].is_some() {
+                            obstacle_count += 1;
+                        }
+                    }
+                } else {
+                    // 纵向移动
+                    let start_row: usize = from.row.min(to.row);
+                    let end_row: usize = from.row.max(to.row);
+                    for row in (start_row + 1)..end_row {
+                        if self.board[row][from.col].is_some() {
+                            obstacle_count += 1;
+                        }
+                    }
+                }
+                
+                // 如果炮是移动，不能有棋子挡路
+                // 如果炮是吃子，检查炮架有且仅有一个子
+                if self.board[to.row][to.col].is_some() {
+                    if obstacle_count == 0 {
+                        return Err(anyhow!("缺少炮架"));
+                    }
+                    else if obstacle_count > 1 {
+                        return Err(anyhow!("炮架过多"));
+                    }
+                } 
+                else {
+                    if obstacle_count > 0 {
+                        return Err(anyhow!("炮的路径被挡"));
+                    }
+                }
+            },
+            // 兵/卒
+            PieceKind::Pawn => {
+                match self.current_player {
+                    PlayerColor::Red => {
+                        // 兵过河前只能前进
+                        if from.row < 5 {
+                            if !(to.row == from.row + 1 && to.col == from.col) {
+                                return Err(anyhow!("兵过河前只能前进一格"));
+                            }
+                        }
+                        // 兵过河后可以前进或横向移动
+                        else {
+                            if !(to.row == from.row + 1 && to.col == from.col) &&
+                               !(to.row == from.row && (to.col as isize - from.col as isize).abs() == 1) {
+                                return Err(anyhow!("兵过河后只能前进或横向移动"));
+                            }
+                        }
+                    },
+                    PlayerColor::Black => {
+                        // 卒过河前只能前进
+                        if from.row > 4  {
+                            if !(to.row == from.row - 1 && to.col == from.col) {
+                                return Err(anyhow!("卒过河前只能前进一格"));
+                            }
+                        }
+                        // 卒过河后可以前进或横向移动
+                        else {
+                            if !(to.row == from.row - 1 && to.col == from.col) &&
+                               !(to.row == from.row && (to.col as isize - from.col as isize).abs() == 1) {
+                                return Err(anyhow!("卒过河后只能前进或横向移动"));
+                            }
+                        }
+                    },
+                }
+            },
+        }
+
+        Ok(())
+    }
     
     /// 生成当前局面的FEN字符串
     pub fn to_fen(&self) -> String {
@@ -155,14 +370,44 @@ impl GameState {
         // 获取棋子中文名称
         let piece_name: &'static str = piece.get_chinese_name();
 
+        let part1: String;
         // 中文和数字列名
         const ZH_LIST: [&str; 9] = ["九", "八", "七", "六", "五", "四", "三", "二", "一"];
         const DIG_LIST: [&str; 9] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
-        let from_col_name: &str = match self.current_player {
-            PlayerColor::Red => ZH_LIST[from.col],
-            PlayerColor::Black => DIG_LIST[from.col],
-        };
+        // 检查该列该类棋子的位置
+        let mut same_piece_idxs: Vec<usize> = Vec::new();
+        for row in 0..10 {
+            if let Some(other_piece) = self.board[row][from.col] {
+                if other_piece.color == piece.color && other_piece.kind == piece.kind {
+                    same_piece_idxs.push(row);
+                }
+            }
+        }
+        
+        // 唯一
+        if same_piece_idxs.len() == 1 {
+            let from_col_name: &str = match self.current_player {
+                PlayerColor::Red => ZH_LIST[from.col],
+                PlayerColor::Black => DIG_LIST[from.col],
+            };
+            part1 = format!("{}{}", piece_name, from_col_name);
+        }
+        // 前/后
+        else {
+            let pos_type: &str;
+            let idx: usize = same_piece_idxs.iter().position(|&r| r == from.row).unwrap();
+            match self.current_player {
+                PlayerColor::Red => {
+                    pos_type = if idx == same_piece_idxs.len() - 1 { "前" } else { "后" };
+                }
+                PlayerColor::Black => {
+                    pos_type = if idx == 0 { "前" } else { "后" };
+                }
+            };
+            part1 = format!("{}{}", pos_type, piece_name);
+        }
+
         let move_type: &str;
         let move_detail: &str;
 
@@ -196,8 +441,21 @@ impl GameState {
                 };
             }
         }
-        
-        Ok(format!("{}{}{}{}", piece_name, from_col_name, move_type, move_detail))
+        let part2: String = format!("{}{}", move_type, move_detail);
+
+        Ok(format!("{}{}", part1, part2))
+    }
+
+    /// 模拟连续走法转换为中文表示
+    pub fn pv_to_chinese(&self, pv: &Vec<String>) -> Result<Vec<String>> {
+        let mut state: GameState = self.clone();
+        let mut zh_moves: Vec<String> = Vec::new();
+        for move_str in pv {
+            let move_zh: String = state.move_to_chinese(&move_str)?;
+            state.apply_move(move_str)?;
+            zh_moves.push(move_zh);
+        }
+        Ok(zh_moves)
     }
 }
 

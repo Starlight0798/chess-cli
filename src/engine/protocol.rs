@@ -1,4 +1,4 @@
-use crate::utils::*;
+use crate::{game::FenProcessor, utils::*};
 
 /// 引擎协议抽象
 #[async_trait]
@@ -10,7 +10,7 @@ pub trait EngineProtocol: Send + Sync {
     async fn set_position(&mut self, fen: &str) -> Result<()>;
     
     /// 开始思考
-    async fn go(&mut self, think_time: Option<usize>) -> Result<String>;
+    async fn go(&mut self, think_time: Option<usize>) -> Result<(Vec<EngineThinkingInfo>, String)>;
     
     /// 停止思考
     async fn stop(&mut self) -> Result<()>;
@@ -20,9 +20,6 @@ pub trait EngineProtocol: Send + Sync {
     
     /// 退出引擎
     async fn quit(&mut self) -> Result<()>;
-
-    /// 获取最后的思考信息
-    fn get_last_think_info(&self) -> Option<EngineThinkingInfo>;
 }
 
 /// 引擎思考信息
@@ -32,7 +29,7 @@ pub struct EngineThinkingInfo {
     pub score: Option<isize>,
     pub nps: Option<usize>,
     pub time: Option<usize>,
-    pub pv: Option<String>,
+    pub pv: Option<Vec<String>>,
 }
 
 impl Default for EngineThinkingInfo {
@@ -59,11 +56,11 @@ impl FromStr for EngineThinkingInfo {
         let mut score: Option<isize> = None;
         let mut nps: Option<usize> = None;
         let mut time: Option<usize> = None;
-        let mut pv: Option<String> = None;
+        let mut pv: Option<Vec<String>> = None;
         
         // 分割行并迭代
         let tokens: Vec<&str> = s.split_whitespace().collect();
-        let mut i = 1; // 跳过 "info"
+        let mut i: usize = 1; // 跳过 "info"
         
         while i < tokens.len() {
             match tokens[i] {
@@ -84,9 +81,8 @@ impl FromStr for EngineThinkingInfo {
                     i += 2;
                 }
                 "pv" if i + 1 < tokens.len() => {
-                    // pv 后面的前四个着法
-                    let pv_moves: Vec<&str> = tokens[i + 1..].iter().take(4).copied().collect();
-                    pv = Some(pv_moves.join(" "));
+                    // pv 后面的前6个着法
+                    pv = Some(tokens[i + 1..].iter().take(6).map(|&s| s.to_string()).collect());
                     break;
                 }
                 _ => {
@@ -112,7 +108,6 @@ impl FromStr for EngineThinkingInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EngineType {
     Pikafish,
-    // TODO: 支持其他引擎
 }
 
 impl FromStr for EngineType {
@@ -138,7 +133,6 @@ impl ToString for EngineType {
 pub struct UciEngine {
     process: Child,
     reader: BufReader<ChildStdout>,
-    last_think_info: Option<EngineThinkingInfo>,
 }
 
 impl UciEngine {
@@ -165,7 +159,6 @@ impl UciEngine {
         Ok(Self {
             process,
             reader: BufReader::new(stdout),
-            last_think_info: None,
         })
     }
 
@@ -238,7 +231,7 @@ impl EngineProtocol for UciEngine {
         self.send_command(&format!("position fen {}", fen)).await
     }
 
-    async fn go(&mut self, think_time: Option<usize>) -> Result<String> {
+    async fn go(&mut self, think_time: Option<usize>) -> Result<(Vec<EngineThinkingInfo>, String)> {
         // 构建 go 命令
         let command: String = match think_time {
             Some(time) => format!("go movetime {}", time),
@@ -248,6 +241,7 @@ impl EngineProtocol for UciEngine {
         self.send_command(&command).await?;
         
         // 读取响应直到找到 bestmove
+        let mut infos: Vec<EngineThinkingInfo> = Vec::new();
         let mut best_move: Option<String> = None;
         while best_move.is_none() {
             let response: String = self.read_response().await?;
@@ -263,7 +257,7 @@ impl EngineProtocol for UciEngine {
                 match EngineThinkingInfo::from_str(&response) {
                     Ok(info) => {
                         log_info!(info);
-                        self.last_think_info = Some(info);
+                        infos.push(info);
                     },
                     Err(e) => {
                         log_error!(format!("解析思考信息失败: {}", e))
@@ -271,8 +265,9 @@ impl EngineProtocol for UciEngine {
                 }
             }
         }
-        
-        best_move.ok_or_else(|| anyhow!("引擎未返回最佳着法"))
+
+        let best_move: String = best_move.ok_or_else(|| anyhow!("引擎未返回最佳着法"))?;
+        Ok((infos, best_move))
     }
 
     async fn stop(&mut self) -> Result<()> {
@@ -298,9 +293,5 @@ impl EngineProtocol for UciEngine {
         self.process.kill().await?;
         
         Ok(())
-    }
-
-    fn get_last_think_info(&self) -> Option<EngineThinkingInfo> {
-        self.last_think_info.clone()
     }
 }
