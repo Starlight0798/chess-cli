@@ -20,6 +20,92 @@ pub trait EngineProtocol: Send + Sync {
     
     /// 退出引擎
     async fn quit(&mut self) -> Result<()>;
+
+    /// 获取最后的思考信息
+    fn get_last_think_info(&self) -> Option<EngineThinkingInfo>;
+}
+
+/// 引擎思考信息
+#[derive(Debug, Clone)]
+pub struct EngineThinkingInfo {
+    pub depth: usize,
+    pub score: Option<isize>,
+    pub nps: Option<usize>,
+    pub time: Option<usize>,
+    pub pv: Option<String>,
+}
+
+impl Default for EngineThinkingInfo {
+    fn default() -> Self {
+        Self {
+            depth: 0,
+            score: None,
+            nps: None,
+            time: None,
+            pv: None,
+        }
+    }
+}
+
+impl FromStr for EngineThinkingInfo {
+    type Err = anyhow::Error;
+    
+    fn from_str(s: &str) -> Result<Self> {
+        if !s.starts_with("info") {
+            return Err(anyhow!("无效的思考信息行: {}", s));
+        }
+        
+        let mut depth: Option<usize> = None;
+        let mut score: Option<isize> = None;
+        let mut nps: Option<usize> = None;
+        let mut time: Option<usize> = None;
+        let mut pv: Option<String> = None;
+        
+        // 分割行并迭代
+        let tokens: Vec<&str> = s.split_whitespace().collect();
+        let mut i = 1; // 跳过 "info"
+        
+        while i < tokens.len() {
+            match tokens[i] {
+                "depth" if i + 1 < tokens.len() => {
+                    depth = Some(tokens[i + 1].parse().context("解析深度失败")?);
+                    i += 2;
+                }
+                "score" if i + 2 < tokens.len() && tokens[i + 1] == "cp" => {
+                    score = Some(tokens[i + 2].parse().context("解析得分失败")?);
+                    i += 3;
+                }
+                "nps" if i + 1 < tokens.len() => {
+                    nps = Some(tokens[i + 1].parse().context("解析节点每秒失败")?);
+                    i += 2;
+                }
+                "time" if i + 1 < tokens.len() => {
+                    time = Some(tokens[i + 1].parse().context("解析时间失败")?);
+                    i += 2;
+                }
+                "pv" if i + 1 < tokens.len() => {
+                    // pv 后面的前四个着法
+                    let pv_moves: Vec<&str> = tokens[i + 1..].iter().take(4).copied().collect();
+                    pv = Some(pv_moves.join(" "));
+                    break;
+                }
+                _ => {
+                    i += 1;
+                }
+            }
+        }
+        
+        // depth 是必须的
+        depth
+            .map(|d| Self {
+                depth: d,
+                score,
+                nps,
+                time,
+                pv,
+            })
+            .ok_or_else(|| anyhow!("思考信息缺少深度"))
+    }
 }
 
 /// 支持的引擎
@@ -52,6 +138,7 @@ impl ToString for EngineType {
 pub struct UciEngine {
     process: Child,
     reader: BufReader<ChildStdout>,
+    last_think_info: Option<EngineThinkingInfo>,
 }
 
 impl UciEngine {
@@ -78,6 +165,7 @@ impl UciEngine {
         Ok(Self {
             process,
             reader: BufReader::new(stdout),
+            last_think_info: None,
         })
     }
 
@@ -170,6 +258,18 @@ impl EngineProtocol for UciEngine {
                     best_move = Some(parts[1].to_string());
                 }
             }
+            // 解析并记录思考信息
+            else if response.starts_with("info") {
+                match EngineThinkingInfo::from_str(&response) {
+                    Ok(info) => {
+                        log_info!(info);
+                        self.last_think_info = Some(info);
+                    },
+                    Err(e) => {
+                        log_error!(format!("解析思考信息失败: {}", e))
+                    },
+                }
+            }
         }
         
         best_move.ok_or_else(|| anyhow!("引擎未返回最佳着法"))
@@ -198,5 +298,9 @@ impl EngineProtocol for UciEngine {
         self.process.kill().await?;
         
         Ok(())
+    }
+
+    fn get_last_think_info(&self) -> Option<EngineThinkingInfo> {
+        self.last_think_info.clone()
     }
 }

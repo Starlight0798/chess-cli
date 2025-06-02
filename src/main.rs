@@ -16,6 +16,7 @@ use crate::{
 
 fn main() -> Result<()> {
     init_logger()?;
+    execute!(stdout(), Clear(ClearType::All))?;
     let rt: Runtime = Runtime::new()?;
     #[cfg(debug_assertions)]
     {

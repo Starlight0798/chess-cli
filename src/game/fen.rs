@@ -54,6 +54,7 @@ impl FenProcessor {
             board,
             current_player,
             history: Vec::new(),
+            flipped: false,
         })
     }
     

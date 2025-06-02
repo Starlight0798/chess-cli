@@ -102,6 +102,7 @@ fn parse_command(input: &str) -> Result<Command> {
             }
         }
         "listengines" => Ok(Command::ListEngines),
+        "reverse" | "flip" => Ok(Command::Reverse),
         "help" => Ok(Command::Help),
         "quit" | "exit" => Ok(Command::Quit),
         _ => Err(anyhow!("未知命令: {}", cmd)),

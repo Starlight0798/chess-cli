@@ -18,6 +18,7 @@ pub enum Command {
     History,
     SetOption { name: String, value: Option<String> },
     ListEngines,
+    Reverse,
     Help,
     Quit,
     Error(String),
@@ -105,6 +106,14 @@ pub async fn run_interactive_loop() -> Result<()> {
             Command::ListEngines => { 
                 let engines: Vec<String> = engine_manager.list_engines();
                 display::show_engines(&engines)?;
+            },
+            Command::Reverse => {
+                if let Some(game) = &mut game_manager {
+                    game.state.flipped = !game.state.flipped;
+                    display::render_view(game_manager.as_ref())?;
+                } else {
+                    display::show_error("没有游戏进行中")?;
+                }
             },
             Command::Help => {
                 display::show_help()?;

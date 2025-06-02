@@ -1,5 +1,5 @@
 use crate::{
-    engine::protocol::EngineProtocol,
+    engine::protocol::{EngineThinkingInfo, EngineProtocol},
     game::state::{GameState, PlayerColor},
     game::fen::FenProcessor,
 };
@@ -42,6 +42,7 @@ impl GameManager {
         
         // 如果目前局面引擎先走
         if player_color.opponent() == self.state.current_player {
+            self.state.flipped = true;
             self.engine_move().await?;
         }
         
@@ -93,5 +94,10 @@ impl GameManager {
         }
         self.engine.quit().await?;
         Ok(())
+    }
+
+    /// 获取最后的引擎思考信息
+    pub fn get_last_think_info(&self) -> Option<EngineThinkingInfo> {
+        self.engine.get_last_think_info()
     }
 }

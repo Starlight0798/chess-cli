@@ -53,6 +53,8 @@ pub struct GameState {
     pub current_player: PlayerColor,
     /// 走子历史
     pub history: Vec<String>,
+    /// 棋盘是否翻转显示
+    pub flipped: bool,
 }
 
 impl GameState {

@@ -9,6 +9,20 @@
 # License
 本项目采用[GPL-3.0 license](LICENSE)协议开源。
 
+# Usage
+1. 下载[皮卡鱼](https://www.pikafish.com/)引擎，解压到当前目录下。
+2. 编译指令:
+   ```bash
+   # windows
+   cargo build --release    
+   # linux
+   cargo install cross
+   cross build --target x86_64-unknown-linux-gnu --release 
+   # macOS TODO
+   ```
+3. 将可执行文件，引擎和权重放在同一文件夹下，并设置`engines.toml`的路径。
+
+
 # TODO
 - [ ] 支持更多引擎
 - [ ] 引擎后台思考
@@ -17,6 +31,11 @@
 
 # DEMO
 
-<img src="assets/image-20250602055744312.png" alt="image-20250602055744312" style="zoom: 67%;" />
+Windows:
 
-<img src="assets/image-20250602055659337.png" alt="image-20250602055659337" style="zoom:67%;" />
+<img src="assets/image-20250602182407956.png" alt="image-20250602182407956" style="zoom:67%;" />
+
+Linux:
+
+<img src="assets/image-20250602182701201.png" alt="image-20250602182701201" style="zoom:67%;" />
+

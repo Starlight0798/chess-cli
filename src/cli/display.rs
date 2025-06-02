@@ -1,4 +1,5 @@
 use crate::game::{GameManager, GameState, PlayerColor, Piece, PieceKind, Position};
+use crate::engine::{EngineProtocol, EngineThinkingInfo};
 use crate::utils::*;
 
 /// 棋盘显示尺寸
@@ -108,7 +109,7 @@ pub fn render_board(state: &GameState) -> Result<()> {
     }
     
     // 绘制坐标标签
-    draw_coordinate_labels()?;      
+    draw_coordinate_labels(state)?;      
 
     Ok(())
 }
@@ -135,15 +136,9 @@ pub fn render_view(game_manager: Option<&GameManager>) -> Result<()> {
         // 绘制状态信息
         draw_status_bar(&game.state)?;
         
-        // 如果引擎正在思考，显示提示
-        if game.think_task.is_some() {
-            execute!(
-                stdout(),
-                MoveTo(INFO_START_COL, 2),
-                SetForegroundColor(Color::Blue),
-                Print("引擎思考中..."),
-                ResetColor
-            )?;
+        // 绘制思考信息
+        if let Some(info) = game.get_last_think_info() {
+            draw_think_info(&info)?;
         }
     }
     
@@ -151,6 +146,34 @@ pub fn render_view(game_manager: Option<&GameManager>) -> Result<()> {
     draw_command_prompt()?;
     
     execute!(stdout(), Show)?;
+    stdout().flush()?;
+    Ok(())
+}
+
+/// 绘制思考信息
+fn draw_think_info(info: &EngineThinkingInfo) -> Result<()> {
+    let info_lines: Vec<String> = format_think_info(&info);
+    let start_y: u16 = 4;
+    let color: Color = if let Some(score) = info.score {
+        if score >= 0 {
+            Color::Blue
+        } else {
+            Color::Red
+        }
+    } else {
+        Color::Reset
+    };
+    
+    for (i, line) in info_lines.iter().enumerate() {
+        execute!(
+            stdout(),
+            MoveTo(INFO_START_COL, start_y + i as u16),
+            SetForegroundColor(color),
+            Print(line),
+            ResetColor
+        )?;
+    }
+    
     stdout().flush()?;
     Ok(())
 }
@@ -244,11 +267,16 @@ fn draw_palace(start_row: usize, start_col: usize) -> Result<()> {
 /// 绘制棋子
 fn draw_piece(state: &GameState, position: Position) -> Result<()> {
     let theme: Theme = Theme::default();
-    // 反转行坐标：存储的行0（红方底部）在屏幕上显示在底部
-    let screen_row: usize = 9 - position.row;
+    // 根据翻转状态调整行坐标和列坐标
+    let (screen_row, screen_col) = if state.flipped {
+        (position.row, 8 - position.col)
+    } else {
+        (9 - position.row, position.col)
+    };
+    
     let (x, y) = board_to_screen(Position {
         row: screen_row,
-        col: position.col,
+        col: screen_col,
     });
     
     if let Some(piece) = state.board[position.row][position.col] {
@@ -296,11 +324,16 @@ fn piece_char(piece: Piece) -> char {
 }
 
 /// 绘制坐标标签
-fn draw_coordinate_labels() -> Result<()> {
+fn draw_coordinate_labels(state: &GameState) -> Result<()> {
     let theme: Theme = Theme::default();
     
-    // 列标签 (a-i)
-    for (i, label) in COL_LABELS.iter().enumerate() {
+    // 列标签 (a-i) - 根据翻转状态调整
+    let col_labels: Vec<char> = if state.flipped {
+        COL_LABELS.iter().rev().cloned().collect::<Vec<char>>()
+    } else {
+        COL_LABELS.to_vec()
+    };
+    for (i, label) in col_labels.iter().enumerate() {
         let x: u16 = (i * 4 + 2) as u16;
         execute!(
             stdout(),
@@ -310,8 +343,14 @@ fn draw_coordinate_labels() -> Result<()> {
         )?;
     }
     
-    // 行标签 (9-0)
-    for (i, label) in ROW_LABELS.iter().enumerate() {
+    // 行标签 (9-0) - 根据翻转状态调整
+    let row_labels = if state.flipped {
+        ROW_LABELS.iter().rev().cloned().collect::<Vec<char>>()
+    } else {
+        ROW_LABELS.to_vec()
+    };
+    
+    for (i, label) in row_labels.iter().enumerate() {
         let y: u16 = (i * 2 + 1) as u16;
         execute!(
             stdout(),
@@ -449,6 +488,7 @@ pub fn show_help() -> Result<()> {
     let help_text: &'static str = "可用命令:
     new <引擎> <red|black> [FEN] - 开始新游戏
     move <走法> - 走子(如'h2e2')
+    reverse|flip - 翻转棋盘显示
     board - 重新显示棋盘
     history - 显示走子历史
     set <参数> <值> - 设置引擎参数
@@ -610,5 +650,35 @@ pub fn reset_input_prompt() -> Result<()> {
     stdout().flush()?;
     Ok(())
 }
+
+/// 格式化思考信息为多行文本
+fn format_think_info(info: &EngineThinkingInfo) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    
+    // 第一行：基本指标
+    let mut line1: String = format!("深度: {}", info.depth);
+    if let Some(score) = info.score {
+        line1.push_str(&format!(" | 分数: {}", score));
+    }
+    if let Some(nps) = info.nps {
+        line1.push_str(&format!(" | NPS: {}k", (nps as f64 / 1024.0_f64).round() as usize));
+    }
+    if let Some(time) = info.time {
+        if time >= 1000 {
+            line1.push_str(&format!(" | 时间: {}s", time as f64 / 1000.0_f64));
+        } else {
+            line1.push_str(&format!(" | 时间: {}ms", time));
+        }
+    }
+    lines.push(line1);
+    
+    // 第二行：主要变例
+    if let Some(pv) = &info.pv {
+        lines.push(format!("PV: {}", pv));
+    }
+    
+    lines
+}
+
 
 
