@@ -674,7 +674,7 @@ pub fn format_think_info(info: &EngineThinkingInfo) -> Result<Vec<String>> {
     
     // 第二行：主要变例
     if let Some(pv) = &info.pv {
-        lines.push(format!("PV: {}", pv.join(" ")));
+        lines.push(format!("主变: {}", pv.join(" ")));
     }
 
     Ok(lines)

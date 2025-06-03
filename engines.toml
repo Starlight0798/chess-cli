@@ -1,11 +1,11 @@
 # 仅支持uci协议
 # []内填支持的引擎: pikafish ...
-# 必填项: path
+# 必填项: path (必须使用正斜杠'/')
 
 [pikafish]
 name = "皮卡鱼"
 protocol = "uci"
-path = "./engines/pikafish-avx2"
+path = "F:/Game/chess/Engine/Pikafish_2025-01-10/pikafish-avx2"
 describe = "棋力最强的象棋引擎，基于最新的 NNUE 神经网络，永久免费开源，支持多种主流界面。"
 
 [pikafish.options]

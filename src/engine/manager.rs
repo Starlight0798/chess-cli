@@ -25,6 +25,8 @@ impl EngineManager {
         // 读取配置文件内容
         let config_content: String = read_to_string(&config_path)
             .with_context(|| format!("读取配置文件失败: {}", config_path.display()))?;
+
+        log_info!(config_content);
         
         // 解析 TOML 配置
         let config: toml::Value = toml::from_str(&config_content)

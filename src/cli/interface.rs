@@ -165,17 +165,8 @@ async fn handle_new_game(
 pub async fn run() -> Result<()> {
     match run_interactive_loop().await {
         Err(e) => {
-            #[cfg(debug_assertions)]
-            { 
-                log_error!(e);
-                Err(e) 
-            }
-
-            #[cfg(not(debug_assertions))]
-            {
-                let _ = display::show_error("内部错误");
-                Ok(())
-            }
+            log_error!(e);
+            Err(e) 
         },
         _ => Ok(()),
     }

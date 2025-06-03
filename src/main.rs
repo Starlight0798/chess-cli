@@ -9,23 +9,18 @@ mod game;
 mod engine;
 mod cli;
 
-use crate::{
-    cli::interface::run,
-    utils::*,
-};
+use crate::utils::*;
 
 fn main() -> Result<()> {
     init_logger()?;
     execute!(stdout(), Clear(ClearType::All))?;
     let rt: Runtime = Runtime::new()?;
-    #[cfg(debug_assertions)]
-    {
-        rt.block_on(cli::interface::run())?;
-    }
-    #[cfg(not(debug_assertions))]
     if let Err(e) = rt.block_on(cli::interface::run()) {
         let _ = cli::display::cleanup_terminal();
-        eprintln!("程序错误: {}", e);
+        cli::display::show_error(&format!("{}", e).to_string())?;
+        
+        #[cfg(debug_assertions)]
+        return Err(e);
     }
     Ok(())
 }
