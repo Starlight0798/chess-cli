@@ -1,5 +1,5 @@
 use crate::{
-    engine::protocol::{EngineThinkingInfo, EngineProtocol},
+    engine::protocol::{EngineThinkingInfo, EngineProtocol, EngineGoResult},
     game::state::{GameState, PlayerColor},
     game::fen::FenProcessor,
 };
@@ -60,24 +60,20 @@ impl GameManager {
     pub async fn engine_move(&mut self) -> Result<()> {
         // 等待引擎走子
         const MAX_THINK_TIME: usize = 5000;
-        let result: Result<(Vec<EngineThinkingInfo>, String)> = self.engine.go(Some(MAX_THINK_TIME)).await;
+        let result: EngineGoResult = self.engine.go(Some(MAX_THINK_TIME)).await?;
 
         // 处理引擎走子和记录思考信息
-        match result {
-            Ok((infos, best_move)) => {
-                if !infos.is_empty() {
-                    let mut info: EngineThinkingInfo = infos.into_iter().last().unwrap();
-                    if let Some(pv) = &info.pv {
-                        info.pv = Some(self.state.pv_to_chinese(pv)?);
-                    }
-                    self.think_info = Some(info);
-                }
-                self.state.apply_move(&best_move)?;
-                self.engine.set_position(&self.state.to_fen()).await?;
-            },
-            Err(e) => return Err(e),
+        if !result.infos.is_empty() {
+            let mut info: EngineThinkingInfo = result.infos.into_iter().last().unwrap();
+            if let Some(pv) = &info.pv {
+                info.pv = Some(self.state.pv_to_chinese(pv)?);
+            }
+            self.think_info = Some(info);
         }
-
+        
+        self.state.apply_move(&result.best_move)?;
+        self.engine.set_position(&self.state.to_fen()).await?;
+        
         Ok(())
     }
     

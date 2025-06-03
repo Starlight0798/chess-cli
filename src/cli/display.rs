@@ -1,5 +1,5 @@
 use crate::game::{FenProcessor, GameManager, GameState, Piece, PieceKind, PlayerColor, Position};
-use crate::engine::{EngineProtocol, EngineThinkingInfo};
+use crate::engine::{EngineProtocol, EngineThinkingInfo, EngineGoResult};
 use crate::utils::*;
 
 /// 棋盘显示尺寸

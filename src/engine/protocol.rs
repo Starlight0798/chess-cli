@@ -10,7 +10,7 @@ pub trait EngineProtocol: Send + Sync {
     async fn set_position(&mut self, fen: &str) -> Result<()>;
     
     /// 开始思考
-    async fn go(&mut self, think_time: Option<usize>) -> Result<(Vec<EngineThinkingInfo>, String)>;
+    async fn go(&mut self, think_time: Option<usize>) -> Result<EngineGoResult>;
     
     /// 停止思考
     async fn stop(&mut self) -> Result<()>;
@@ -102,6 +102,15 @@ impl FromStr for EngineThinkingInfo {
             })
             .ok_or_else(|| anyhow!("思考信息缺少深度"))
     }
+}
+
+/// 引擎思考结果
+#[derive(Debug, Clone)]
+pub struct EngineGoResult {
+    /// 最佳着法
+    pub best_move: String,
+    /// 思考信息
+    pub infos: Vec<EngineThinkingInfo>,
 }
 
 /// 支持的引擎
@@ -231,7 +240,7 @@ impl EngineProtocol for UciEngine {
         self.send_command(&format!("position fen {}", fen)).await
     }
 
-    async fn go(&mut self, think_time: Option<usize>) -> Result<(Vec<EngineThinkingInfo>, String)> {
+    async fn go(&mut self, think_time: Option<usize>) -> Result<EngineGoResult> {
         // 构建 go 命令
         let command: String = match think_time {
             Some(time) => format!("go movetime {}", time),
@@ -267,7 +276,7 @@ impl EngineProtocol for UciEngine {
         }
 
         let best_move: String = best_move.ok_or_else(|| anyhow!("引擎未返回最佳着法"))?;
-        Ok((infos, best_move))
+        Ok(EngineGoResult { best_move, infos })
     }
 
     async fn stop(&mut self) -> Result<()> {
