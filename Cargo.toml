@@ -1,20 +1,25 @@
 [package]
 name = "chess-cli"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 authors = ["pluto"]
 license = "GPL-3.0"
+description = "A cross-platform Chinese Chess (Xiangqi) CLI with UCI engine support."
+repository = "https://github.com/pluto/chess-cli"
+keywords = ["chess", "xiangqi", "uci", "cli", "tui"]
+categories = ["command-line-utilities", "games"]
+readme = "README.md"
 
 [dependencies]
-tokio = { version = "1.45.1", features = ["full"] }
-async-trait = "0.1.88"
+tokio = { version = "1.49.0", features = ["full"] }
+async-trait = "0.1.89"
 crossterm = "0.29.0"
-anyhow = "1.0.98"
-hashbrown = "0.15.3"
-toml = "0.8.22"
+anyhow = "1.0.100"
+hashbrown = "0.16.1"
+toml = "0.9.8"
 dirs = "6.0.0"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 ratatui = "0.30.0"
 
 [profile.release]

@@ -1,5 +1,5 @@
+use crate::game::state::{GameState, Piece, PieceKind, PlayerColor};
 use crate::utils::*;
-use crate::game::{GameState, PlayerColor, Piece, PieceKind};
 
 /// 处理FEN字符串的解析和生成
 pub struct FenProcessor;
@@ -12,24 +12,24 @@ impl FenProcessor {
         if parts.len() < 2 {
             return Err(anyhow!("FEN字符串至少包括两部分: 棋盘状态和当前玩家"));
         }
-        
+
         let board_str: &str = parts[0];
         let mut board: [[Option<Piece>; 9]; 10] = [[None; 9]; 10];
-        
+
         // 按行分割并反转顺序
         let mut rows: Vec<&str> = board_str.split('/').collect();
         rows.reverse();
         if rows.len() != 10 {
             return Err(anyhow!("FEN必须有10行"));
         }
-        
+
         for (y, row) in rows.iter().enumerate() {
             let mut x: usize = 0;
             for c in row.chars() {
                 // 数字表示空格子数量
                 if let Some(digit) = c.to_digit(10) {
                     x += digit as usize;
-                } 
+                }
                 // 否则是棋子字符
                 else {
                     let piece: Piece = Self::char_to_piece(c)?;
@@ -37,27 +37,29 @@ impl FenProcessor {
                     x += 1;
                 }
             }
-            
+
             if x != 9 {
                 return Err(anyhow!("一行不足9个格子"));
             }
         }
-        
+
         // 解析当前玩家
         let current_player: PlayerColor = match parts[1] {
             "w" => PlayerColor::Red,
             "b" => PlayerColor::Black,
             _ => return Err(anyhow!("当前玩家必须是 'w' 或 'b'")),
         };
-        
+
         Ok(GameState {
             board,
             current_player,
             history: Vec::new(),
+            move_history: Vec::new(),
+            redo_history: Vec::new(),
             flipped: false,
         })
     }
-    
+
     /// 将字符转换为棋子
     fn char_to_piece(c: char) -> Result<Piece> {
         let (color, kind) = match c {
@@ -79,17 +81,17 @@ impl FenProcessor {
         };
         Ok(Piece { color, kind })
     }
-    
+
     /// 从游戏状态生成FEN字符串
     pub fn generate_fen(state: &GameState) -> String {
         let mut fen: String = String::new();
-        
+
         // 反转行顺序：从黑方顶部（第9行）到红方底部（第0行）
         for y in (0..10).rev() {
             let mut empty: usize = 0;
             for piece in &state.board[y] {
                 if let Some(p) = piece {
-                    // 如果有空位，先输出空位数字
+                    // 若存在连续空位，输出空位数量
                     if empty > 0 {
                         fen.push_str(&empty.to_string());
                         empty = 0;
@@ -99,28 +101,28 @@ impl FenProcessor {
                     empty += 1;
                 }
             }
-            
-            // 行末的空位
+
+            // 处理行末剩余的空位
             if empty > 0 {
                 fen.push_str(&empty.to_string());
             }
-            
-            // 行之间用斜杠分隔（除了最后一行）
+
+            // 添加行分隔符
             if y > 0 {
                 fen.push('/');
             }
         }
-        
-        // 添加当前玩家
+
+        // 添加当前走棋方
         fen.push(' ');
         match state.current_player {
             PlayerColor::Red => fen.push('w'),
             PlayerColor::Black => fen.push('b'),
         }
-        
+
         fen
     }
-    
+
     /// 将棋子转换为字符
     fn piece_to_char(piece: Piece) -> char {
         match (piece.color, piece.kind) {

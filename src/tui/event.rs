@@ -1,7 +1,6 @@
 use crate::engine::protocol::EngineEvent;
-use crossterm::event::{self, Event as CEvent, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event as CEvent, KeyEvent};
 use std::time::{Duration, Instant};
-use anyhow::Result;
 use tokio::sync::mpsc;
 
 /// 终端事件
@@ -14,13 +13,16 @@ pub enum Event {
     /// 引擎事件
     Engine(EngineEvent),
     /// 错误
+    #[allow(dead_code)]
     Error,
 }
 
 /// 事件处理器
 pub struct EventHandler {
-    pub sender: mpsc::UnboundedSender<Event>, // Made public to allow App to clone
+    /// 事件发送器，允许 App 克隆使用
+    pub sender: mpsc::UnboundedSender<Event>,
     rx: mpsc::UnboundedReceiver<Event>,
+    /// 后台轮询任务句柄
     _task: tokio::task::JoinHandle<()>,
 }
 
@@ -38,18 +40,15 @@ impl EventHandler {
                     .unwrap_or_else(|| Duration::from_secs(0));
 
                 if event::poll(timeout).expect("failed to poll new events") {
-                    match event::read().expect("failed to read events") {
-                        CEvent::Key(key) => {
-                            if let Err(_) = tx.send(Event::Key(key)) {
-                                return;
-                            }
+                    if let CEvent::Key(key) = event::read().expect("failed to read events") {
+                        if tx.send(Event::Key(key)).is_err() {
+                            return;
                         }
-                        _ => {}
                     }
                 }
 
                 if last_tick.elapsed() >= tick_rate {
-                    if let Err(_) = tx.send(Event::Tick) {
+                    if tx.send(Event::Tick).is_err() {
                         return;
                     }
                     last_tick = Instant::now();
@@ -57,7 +56,11 @@ impl EventHandler {
             }
         });
 
-        Self { rx, sender: _tx, _task: task }
+        Self {
+            rx,
+            sender: _tx,
+            _task: task,
+        }
     }
 
     /// 获取下一个事件
