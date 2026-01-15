@@ -62,6 +62,18 @@ impl EngineManager {
                 if exe_config.exists() {
                     return Ok(exe_config);
                 }
+
+                // 2.1 开发环境回退：尝试在父目录查找 (例如 target/release/chess-cli -> ../../engines.toml)
+                let mut parent = exe_dir;
+                for _ in 0..3 {
+                    if let Some(p) = parent.parent() {
+                        let config = p.join("engines.toml");
+                        if config.exists() {
+                            return Ok(config);
+                        }
+                        parent = p;
+                    }
+                }
             }
         }
         

@@ -2,8 +2,6 @@
 
 pub mod fen;
 pub mod state;
-pub mod manager;
 
 pub use fen::*;
 pub use state::*;
-pub use manager::*;

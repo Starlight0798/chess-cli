@@ -7,18 +7,20 @@
 mod utils;
 mod game;
 mod engine;
-mod cli;
+mod tui;
 
 use crate::utils::*;
 
 fn main() -> Result<()> {
     init_logger()?;
-    execute!(stdout(), Clear(ClearType::All))?;
     let rt: Runtime = Runtime::new()?;
-    if let Err(e) = rt.block_on(cli::interface::run()) {
-        let _ = cli::display::cleanup_terminal();
-        cli::display::show_error(&format!("{}", e).to_string())?;
-        
+    
+    // 使用新的 TUI 界面
+    if let Err(e) = rt.block_on(async {
+        let mut app = tui::app::App::new()?;
+        app.run().await
+    }) {
+        println!("Error: {}", e);
         #[cfg(debug_assertions)]
         return Err(e);
     }

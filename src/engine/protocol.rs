@@ -1,4 +1,19 @@
 use crate::{game::FenProcessor, utils::*};
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use std::process::Stdio;
+use std::time::Duration;
+use tokio::time::sleep;
+
+/// 引擎事件
+#[derive(Debug, Clone)]
+pub enum EngineEvent {
+    Thinking(EngineThinkingInfo),
+    BestMove(String),
+    Ready,
+    Error(String),
+}
 
 /// 引擎协议抽象
 #[async_trait]
@@ -10,7 +25,7 @@ pub trait EngineProtocol: Send + Sync {
     async fn set_position(&mut self, fen: &str) -> Result<()>;
     
     /// 开始思考
-    async fn go(&mut self, think_time: Option<usize>) -> Result<EngineGoResult>;
+    async fn go(&mut self, think_time: Option<usize>) -> Result<()>;
     
     /// 停止思考
     async fn stop(&mut self) -> Result<()>;
@@ -20,6 +35,9 @@ pub trait EngineProtocol: Send + Sync {
     
     /// 退出引擎
     async fn quit(&mut self) -> Result<()>;
+
+    /// 设置事件发送器
+    async fn set_event_sender(&mut self, tx: UnboundedSender<EngineEvent>) -> Result<()>;
 }
 
 /// 引擎思考信息
@@ -141,7 +159,7 @@ impl ToString for EngineType {
 /// UCI 协议引擎实现
 pub struct UciEngine {
     process: Child,
-    reader: BufReader<ChildStdout>,
+    reader: Option<BufReader<ChildStdout>>,
 }
 
 impl UciEngine {
@@ -167,7 +185,7 @@ impl UciEngine {
 
         Ok(Self {
             process,
-            reader: BufReader::new(stdout),
+            reader: Some(BufReader::new(stdout)),
         })
     }
 
@@ -198,10 +216,11 @@ impl UciEngine {
         Ok(())
     }
 
-    /// 读取引擎响应
-    async fn read_response(&mut self) -> Result<String> {
+    /// 读取引擎响应 (同步等待一行)
+    async fn read_line(&mut self) -> Result<String> {
+        let reader = self.reader.as_mut().ok_or_else(|| anyhow!("Reader moved"))?;
         let mut response: String = String::new();
-        self.reader
+        reader
             .read_line(&mut response)
             .await
             .context("读取引擎输出失败")?;
@@ -218,19 +237,26 @@ impl EngineProtocol for UciEngine {
         // 发送 uci 命令
         self.send_command("uci").await?;
         
-        // 等待 uciok 响应
-        let mut response: String = String::new();
-        while !response.contains("uciok") {
-            response = self.read_response().await?;
-        }
-        
-        // 发送 isready 命令
-        self.send_command("isready").await?;
-        
-        // 等待 readyok 响应
-        let mut response: String = String::new();
-        while !response.contains("readyok") {
-            response = self.read_response().await?;
+        // 如果 reader 存在，说明是同步模式，需要等待响应
+        if self.reader.is_some() {
+            // 等待 uciok 响应
+            let mut response: String = String::new();
+            while !response.contains("uciok") {
+                response = self.read_line().await?;
+            }
+            
+            // 发送 isready 命令
+            self.send_command("isready").await?;
+            
+            // 等待 readyok 响应
+            let mut response: String = String::new();
+            while !response.contains("readyok") {
+                response = self.read_line().await?;
+            }
+        } else {
+            // 异步模式：直接发送 isready
+            // 响应将由 set_event_sender 启动的后台任务处理
+            self.send_command("isready").await?;
         }
         
         Ok(())
@@ -240,43 +266,14 @@ impl EngineProtocol for UciEngine {
         self.send_command(&format!("position fen {}", fen)).await
     }
 
-    async fn go(&mut self, think_time: Option<usize>) -> Result<EngineGoResult> {
+    async fn go(&mut self, think_time: Option<usize>) -> Result<()> {
         // 构建 go 命令
         let command: String = match think_time {
             Some(time) => format!("go movetime {}", time),
             None => "go".to_string(),
         };
         
-        self.send_command(&command).await?;
-        
-        // 读取响应直到找到 bestmove
-        let mut infos: Vec<EngineThinkingInfo> = Vec::new();
-        let mut best_move: Option<String> = None;
-        while best_move.is_none() {
-            let response: String = self.read_response().await?;
-            
-            if response.starts_with("bestmove") {
-                let parts: Vec<&str> = response.split_whitespace().collect();
-                if parts.len() > 1 {
-                    best_move = Some(parts[1].to_string());
-                }
-            }
-            // 解析并记录思考信息
-            else if response.starts_with("info") {
-                match EngineThinkingInfo::from_str(&response) {
-                    Ok(info) => {
-                        log_info!(info);
-                        infos.push(info);
-                    },
-                    Err(e) => {
-                        log_error!(format!("解析思考信息失败: {}", e))
-                    },
-                }
-            }
-        }
-
-        let best_move: String = best_move.ok_or_else(|| anyhow!("引擎未返回最佳着法"))?;
-        Ok(EngineGoResult { best_move, infos })
+        self.send_command(&command).await
     }
 
     async fn stop(&mut self) -> Result<()> {
@@ -300,6 +297,39 @@ impl EngineProtocol for UciEngine {
         
         // 尝试终止进程
         self.process.kill().await?;
+        
+        Ok(())
+    }
+
+    async fn set_event_sender(&mut self, tx: UnboundedSender<EngineEvent>) -> Result<()> {
+        let mut reader = self.reader.take().ok_or_else(|| anyhow!("Reader already taken"))?;
+        
+        tokio::spawn(async move {
+            let mut line = String::new();
+            while let Ok(n) = reader.read_line(&mut line).await {
+                if n == 0 { break; } // EOF
+                
+                let response = line.trim().to_string();
+                log_info!(response);
+                
+                if response.starts_with("bestmove") {
+                    let parts: Vec<&str> = response.split_whitespace().collect();
+                    if parts.len() > 1 {
+                        let _ = tx.send(EngineEvent::BestMove(parts[1].to_string()));
+                    }
+                }
+                else if response.starts_with("info") {
+                    if let Ok(info) = EngineThinkingInfo::from_str(&response) {
+                        let _ = tx.send(EngineEvent::Thinking(info));
+                    }
+                }
+                else if response.contains("readyok") {
+                     let _ = tx.send(EngineEvent::Ready);
+                }
+                
+                line.clear();
+            }
+        });
         
         Ok(())
     }

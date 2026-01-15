@@ -5,9 +5,10 @@
 [pikafish]
 name = "皮卡鱼"
 protocol = "uci"
-path = "F:/Game/chess/Engine/Pikafish_2025-01-10/pikafish-avx2"
+# path = "F:/Game/chess/Engine/Pikafish_2025-01-10/pikafish-avx2"
+path = "/Users/pluto/Applications/Pikafish-20260102/MacOS/pikafish-apple-silicon"
 describe = "棋力最强的象棋引擎，基于最新的 NNUE 神经网络，永久免费开源，支持多种主流界面。"
 
 [pikafish.options]
 Threads = "1"
-Hash = "1024"
+Hash = "512"

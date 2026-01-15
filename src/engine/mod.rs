@@ -2,6 +2,8 @@
 
 pub mod manager;
 pub mod protocol;
+pub mod actor;
 
 pub use manager::*;
 pub use protocol::*;
+pub use actor::*;
