@@ -18,9 +18,17 @@ pub struct EngineManager {
 
 impl EngineManager {
     /// 创建新的引擎管理器
-    pub fn new() -> Result<Self> {
+    /// 返回管理器实例和加载信息消息
+    pub fn new() -> Result<(Self, String)> {
         // 查找配置文件
-        let config_path: PathBuf = Self::find_config()?;
+        let (config_path, is_created) = match Self::find_config() {
+            Ok(path) => (path, false),
+            Err(_) => {
+                // 如果找不到，尝试创建默认配置
+                let path = Self::create_default_config()?;
+                (path, true)
+            }
+        };
 
         // 读取配置文件内容
         let config_content: String = read_to_string(&config_path)
@@ -36,16 +44,65 @@ impl EngineManager {
 
         // 创建引擎映射
         let mut engines: HashMap<EngineType, EngineConfig> = HashMap::new();
-        for (key, value) in config.as_table().unwrap() {
-            engines.insert(
-                EngineType::from_str(key)?,
-                EngineConfig::try_from(value.clone())?,
-            );
+        if let Some(table) = config.as_table() {
+            for (key, value) in table {
+                if let Ok(engine_type) = EngineType::from_str(key) {
+                    if let Ok(engine_config) = EngineConfig::try_from(value.clone()) {
+                        engines.insert(engine_type, engine_config);
+                    }
+                }
+            }
         }
 
         log_info!(engines);
 
-        Ok(Self { engines })
+        let msg = if is_created {
+            format!("未找到配置文件，已在 {} 创建默认配置", config_path.display())
+        } else {
+            format!("已加载配置文件: {}", config_path.display())
+        };
+
+        Ok((Self { engines }, msg))
+    }
+
+    /// 创建默认配置文件
+    fn create_default_config() -> Result<PathBuf> {
+        // 优先在当前目录创建
+        let current_dir_config = Path::new("engines.toml");
+        
+        let default_content = r#"# Chess CLI 引擎配置文件
+
+# 示例: 皮卡鱼 (Pikafish)
+[pikafish]
+# 引擎可执行文件路径 (支持绝对路径或相对路径)
+# Windows 示例:
+path = "./pikafish.exe" 
+# Linux/Mac 示例:
+# path = "./pikafish"
+
+[pikafish.options]
+# 这里可以设置 UCI 选项
+# Threads = "1"
+# Hash = "16"
+"#;
+
+        // 尝试写入当前目录
+        if let Ok(_) = std::fs::write(current_dir_config, default_content) {
+            return Ok(current_dir_config.to_path_buf());
+        }
+
+        // 如果当前目录不可写，尝试用户配置目录
+        if let Some(mut config_dir) = dirs::config_dir() {
+            config_dir.push("chess-cli");
+            if !config_dir.exists() {
+                std::fs::create_dir_all(&config_dir)?;
+            }
+            config_dir.push("engines.toml");
+            std::fs::write(&config_dir, default_content)?;
+            return Ok(config_dir);
+        }
+
+        Err(anyhow!("无法创建默认配置文件，请检查权限"))
     }
 
     /// 查找配置文件

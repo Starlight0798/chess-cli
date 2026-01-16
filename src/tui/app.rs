@@ -133,13 +133,15 @@ pub struct App {
     pub should_quit: bool,
     pub event_sender: Option<mpsc::UnboundedSender<Event>>,
     pub active_engine_name: Option<String>,
+    pub should_ignore_next_best_move: bool,
 }
 
 impl App {
     /// 创建新应用程序
     pub fn new() -> Result<Self> {
-        let engine_manager = EngineManager::new()?;
+        let (engine_manager, config_msg) = EngineManager::new()?;
         let mut ui_state = UiState::default();
+        ui_state.messages.push(config_msg);
         ui_state.engine_list = engine_manager.list_engines();
         
         // 如果有引擎，默认选择第一个
@@ -155,6 +157,7 @@ impl App {
             should_quit: false,
             event_sender: None,
             active_engine_name: None,
+            should_ignore_next_best_move: false,
         })
     }
 
@@ -308,6 +311,14 @@ impl App {
                 best_move,
                 ponder_move,
             } => {
+                // 检查是否需要忽略此 bestmove (通常是因为 stop 命令)
+                if self.should_ignore_next_best_move {
+                    self.should_ignore_next_best_move = false;
+                    self.ui_state.engine_info = None;
+                    self.ui_state.engine_pv_chinese = None;
+                    return Ok(());
+                }
+
                 // 清除旧的思考信息，避免在界面上显示过时的 PV
                 self.ui_state.engine_info = None;
                 self.ui_state.engine_pv_chinese = None;
@@ -785,8 +796,11 @@ impl App {
                         }
 
                         if !hit {
-                            // Stop any thinking
-                            actor.send(EngineCommand::Stop).await?;
+                            // Stop any thinking if needed
+                            if self.ui_state.ponder_move.is_some() {
+                                actor.send(EngineCommand::Stop).await?;
+                                self.should_ignore_next_best_move = true;
+                            }
                             
                             // Send new position
                             let fen = state.to_fen();
