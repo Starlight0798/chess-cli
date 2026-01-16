@@ -906,16 +906,37 @@ impl GameState {
     }
 
     /// 模拟连续走法转换为中文表示
-    #[allow(dead_code)]
-    pub fn pv_to_chinese(&self, pv: &Vec<String>) -> Result<Vec<String>> {
-        let mut state: GameState = self.clone();
-        let mut zh_moves: Vec<String> = Vec::new();
+    /// 如果某步转换失败或非法，后续步骤将保留原始字符串
+    pub fn pv_to_chinese(&self, pv: &[String]) -> Vec<String> {
+        let mut state = self.clone();
+        let mut zh_moves = Vec::new();
+        
         for move_str in pv {
-            let move_zh: String = state.move_to_chinese(move_str)?;
-            state.apply_move(move_str)?;
-            zh_moves.push(move_zh);
+            match state.move_to_chinese(move_str) {
+                Ok(zh) => {
+                    zh_moves.push(zh);
+                    // 尝试应用走法，如果失败则后续无法继续转换
+                    if state.apply_move(move_str).is_err() {
+                        // 当前走法虽然转换中文成功，但应用失败（可能是非法走法）
+                        // 这种情况比较少见，因为move_to_chinese已经做了一些检查
+                        // 但apply_move有更严格的规则（如送将）
+                        // 我们继续后续的原始字符串
+                        let current_idx = zh_moves.len();
+                        if current_idx < pv.len() {
+                            zh_moves.extend(pv[current_idx..].iter().cloned());
+                        }
+                        break;
+                    }
+                }
+                Err(_) => {
+                    // 转换失败，添加原始字符串并结束转换
+                    let current_idx = zh_moves.len();
+                    zh_moves.extend(pv[current_idx..].iter().cloned());
+                    break;
+                }
+            }
         }
-        Ok(zh_moves)
+        zh_moves
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::game::{GameState, Piece, PieceKind, PlayerColor, Position};
-use crate::tui::app::{App, View};
+use crate::tui::app::{App, View, StrategyType};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -83,11 +83,21 @@ fn draw_settings(f: &mut Frame, app: &App) {
         PlayerColor::Black => "黑方 (Black)",
     };
 
+    let strategy_desc = format!("{}", app.ui_state.game_config.strategy);
+    let is_move_time = app.ui_state.game_config.strategy == StrategyType::MoveTime;
+    let is_depth = app.ui_state.game_config.strategy == StrategyType::Depth;
+    let is_game_time = app.ui_state.game_config.strategy == StrategyType::GameTime;
+
     let items = vec![
         format!("玩家执色: < {} >", player_side_str),
         format!("引擎选择: < {} >", app.ui_state.game_config.engine_name),
         format!("MultiPV (多路分析): < {} >", app.ui_state.game_config.multipv),
         format!("难度等级 (0-20): < {} >", app.ui_state.game_config.difficulty_level),
+        format!("思考策略: < {} >", strategy_desc),
+        format!("步时 (ms): < {} >{}", app.ui_state.game_config.move_time, if !is_move_time { " (未启用)" } else { "" }),
+        format!("搜索深度: < {} >{}", app.ui_state.game_config.depth, if !is_depth { " (未启用)" } else { "" }),
+        format!("局时 (分): < {} >{}", app.ui_state.game_config.game_time, if !is_game_time { " (未启用)" } else { "" }),
+        format!("加秒 (秒): < {} >{}", app.ui_state.game_config.game_inc, if !is_game_time { " (未启用)" } else { "" }),
         "返回主菜单".to_string(),
     ];
 
@@ -95,11 +105,24 @@ fn draw_settings(f: &mut Frame, app: &App) {
         .iter()
         .enumerate()
         .map(|(i, item)| {
-            let style = if i == app.ui_state.menu_index {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
+            let mut style = Style::default();
+            
+            // Determine if item is enabled based on strategy
+            let enabled = match i {
+                5 => is_move_time,
+                6 => is_depth,
+                7 | 8 => is_game_time,
+                _ => true,
             };
+
+            if !enabled {
+                style = style.fg(Color::DarkGray);
+            }
+
+            if i == app.ui_state.menu_index {
+                style = style.fg(Color::Yellow).add_modifier(Modifier::BOLD);
+            }
+
             ListItem::new(format!("{} {}", if i == app.ui_state.menu_index { ">>" } else { "  " }, item))
                 .style(style)
         })
@@ -225,10 +248,7 @@ fn draw_game(f: &mut Frame, app: &App) {
 
         let pv_str = if let Some(pv) = &info.pv {
             if let Some(state) = &app.game_state {
-                match state.pv_to_chinese(pv) {
-                    Ok(zh_moves) => zh_moves.join(" "),
-                    Err(_) => pv.join(" "),
-                }
+                state.pv_to_chinese(pv).join(" ")
             } else {
                 pv.join(" ")
             }
@@ -236,11 +256,17 @@ fn draw_game(f: &mut Frame, app: &App) {
             "-".to_string()
         };
 
+        let nps_str = if let Some(nps) = info.nps {
+            format!("{}k", nps / 1000)
+        } else {
+            "0".to_string()
+        };
+
         format!(
             "深度: {}\n分数: {}\nNPS: {}\n节点: {}\nHash: {}‰\nPV: {}",
             info.depth,
             score_str,
-            info.nps.unwrap_or(0),
+            nps_str,
             info.nodes.unwrap_or(0),
             info.hashfull.unwrap_or(0),
             pv_str

@@ -9,6 +9,25 @@ use crossterm::event::{KeyCode, KeyEvent};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum StrategyType {
+    MoveTime,
+    Depth,
+    GameTime,
+    Infinite,
+}
+
+impl std::fmt::Display for StrategyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StrategyType::MoveTime => write!(f, "固定步时"),
+            StrategyType::Depth => write!(f, "固定深度"),
+            StrategyType::GameTime => write!(f, "局时模式"),
+            StrategyType::Infinite => write!(f, "无限分析"),
+        }
+    }
+}
+
 /// 游戏配置
 #[derive(Debug, Clone)]
 pub struct GameConfig {
@@ -16,6 +35,13 @@ pub struct GameConfig {
     pub engine_name: String,
     pub multipv: u32,
     pub difficulty_level: u32, // 0-20, mapped to UCI_Elo or LimitStrength
+    
+    // 策略相关配置
+    pub strategy: StrategyType,
+    pub move_time: u64,     // ms
+    pub depth: u32,         // plies
+    pub game_time: u64,     // minutes
+    pub game_inc: u64,      // seconds
 }
 
 impl Default for GameConfig {
@@ -25,7 +51,32 @@ impl Default for GameConfig {
             engine_name: "pikafish".to_string(),
             multipv: 1,
             difficulty_level: 20, // Max
+            strategy: StrategyType::MoveTime,
+            move_time: 3000,
+            depth: 20,
+            game_time: 10,
+            game_inc: 5,
         }
+    }
+}
+
+impl GameConfig {
+    pub fn get_go_params(&self) -> GoParams {
+        let mut params = GoParams::default();
+        match self.strategy {
+            StrategyType::MoveTime => params.movetime = Some(self.move_time as usize),
+            StrategyType::Depth => params.depth = Some(self.depth as usize),
+            StrategyType::GameTime => {
+                let time_ms = self.game_time * 60 * 1000;
+                let inc_ms = self.game_inc * 1000;
+                params.wtime = Some(time_ms as usize);
+                params.btime = Some(time_ms as usize);
+                params.winc = Some(inc_ms as usize);
+                params.binc = Some(inc_ms as usize);
+            },
+            StrategyType::Infinite => params.infinite = true,
+        }
+        params
     }
 }
 
@@ -350,7 +401,7 @@ impl App {
                 }
             }
             KeyCode::Down => {
-                if self.ui_state.menu_index < 4 {
+                if self.ui_state.menu_index < 9 {
                     self.ui_state.menu_index += 1;
                 }
             }
@@ -404,6 +455,83 @@ impl App {
                         }
                     }
                     4 => {
+                        // Strategy
+                        let strategies = [
+                            StrategyType::MoveTime,
+                            StrategyType::Depth,
+                            StrategyType::GameTime,
+                            StrategyType::Infinite,
+                        ];
+                        let current_idx = strategies
+                            .iter()
+                            .position(|s| *s == self.ui_state.game_config.strategy)
+                            .unwrap_or(0);
+                        let next_idx = if key.code == KeyCode::Left {
+                            if current_idx == 0 {
+                                strategies.len() - 1
+                            } else {
+                                current_idx - 1
+                            }
+                        } else {
+                            (current_idx + 1) % strategies.len()
+                        };
+                        self.ui_state.game_config.strategy = strategies[next_idx].clone();
+                    }
+                    5 => {
+                        // Move Time (ms)
+                        match key.code {
+                            KeyCode::Left => {
+                                if self.ui_state.game_config.move_time > 100 {
+                                    self.ui_state.game_config.move_time -= 100;
+                                }
+                            }
+                            _ => {
+                                self.ui_state.game_config.move_time += 100;
+                            }
+                        }
+                    }
+                    6 => {
+                        // Depth
+                        match key.code {
+                            KeyCode::Left => {
+                                if self.ui_state.game_config.depth > 1 {
+                                    self.ui_state.game_config.depth -= 1;
+                                }
+                            }
+                            _ => {
+                                if self.ui_state.game_config.depth < 128 {
+                                    self.ui_state.game_config.depth += 1;
+                                }
+                            }
+                        }
+                    }
+                    7 => {
+                        // Game Time (min)
+                        match key.code {
+                            KeyCode::Left => {
+                                if self.ui_state.game_config.game_time > 1 {
+                                    self.ui_state.game_config.game_time -= 1;
+                                }
+                            }
+                            _ => {
+                                self.ui_state.game_config.game_time += 1;
+                            }
+                        }
+                    }
+                    8 => {
+                        // Game Inc (s)
+                        match key.code {
+                            KeyCode::Left => {
+                                if self.ui_state.game_config.game_inc > 0 {
+                                    self.ui_state.game_config.game_inc -= 1;
+                                }
+                            }
+                            _ => {
+                                self.ui_state.game_config.game_inc += 1;
+                            }
+                        }
+                    }
+                    9 => {
                         self.ui_state.view = View::Home;
                     }
                     _ => {}
@@ -454,10 +582,7 @@ impl App {
 
             // 如果玩家执黑，引擎（红方）先行
             if self.ui_state.game_config.player_side == PlayerColor::Black {
-                 let params = GoParams {
-                     movetime: Some(3000), // 固定时间，后续可配置
-                     ..Default::default()
-                 };
+                 let params = self.ui_state.game_config.get_go_params();
                  actor.send(EngineCommand::Go(params)).await?;
                  self.ui_state.messages.push("引擎思考中...".to_string());
             }
@@ -647,10 +772,7 @@ impl App {
                                 .await?;
                             
                             // Start thinking
-                            let params = GoParams {
-                                movetime: Some(3000),
-                                ..Default::default()
-                            };
+                            let params = self.ui_state.game_config.get_go_params();
                             actor.send(EngineCommand::Go(params)).await?;
                             self.ui_state.messages.push("引擎思考中...".to_string());
                         }

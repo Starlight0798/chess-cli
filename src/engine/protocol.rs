@@ -352,15 +352,19 @@ impl UciEngine {
             .as_mut()
             .ok_or_else(|| anyhow!("打开引擎标准输入失败"))?;
 
+        // 拼接命令和换行符，一次性写入
+        #[cfg(windows)]
+        let line_ending = "\r\n";
+        #[cfg(not(windows))]
+        let line_ending = "\n";
+
+        let full_command = format!("{}{}", command, line_ending);
+
         // 写入命令并添加换行符
         stdin
-            .write_all(command.as_bytes())
+            .write_all(full_command.as_bytes())
             .await
             .context("写入命令到引擎失败")?;
-        stdin
-            .write_all(b"\n")
-            .await
-            .context("写入换行符到引擎失败")?;
         stdin.flush().await.context("刷新引擎标准输入失败")?;
 
         log_info!(command);

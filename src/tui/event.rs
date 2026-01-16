@@ -1,5 +1,5 @@
 use crate::engine::protocol::EngineEvent;
-use crossterm::event::{self, Event as CEvent, KeyEvent};
+use crossterm::event::{self, Event as CEvent, KeyEvent, KeyEventKind};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
@@ -41,8 +41,10 @@ impl EventHandler {
 
                 if event::poll(timeout).expect("failed to poll new events") {
                     if let CEvent::Key(key) = event::read().expect("failed to read events") {
-                        if tx.send(Event::Key(key)).is_err() {
-                            return;
+                        if key.kind == KeyEventKind::Press || key.kind == KeyEventKind::Repeat {
+                            if tx.send(Event::Key(key)).is_err() {
+                                return;
+                            }
                         }
                     }
                 }
