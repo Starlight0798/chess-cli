@@ -102,6 +102,7 @@ pub struct UiState {
     pub game_config: GameConfig,
     pub menu_index: usize,
     pub engine_list: Vec<String>,
+    pub engine_pv_chinese: Option<String>,
 }
 
 impl Default for UiState {
@@ -118,6 +119,7 @@ impl Default for UiState {
             game_config: GameConfig::default(),
             menu_index: 0,
             engine_list: Vec::new(),
+            engine_pv_chinese: None,
         }
     }
 }
@@ -280,12 +282,36 @@ impl App {
     async fn handle_engine_event(&mut self, event: EngineEvent) -> Result<()> {
         match event {
             EngineEvent::Thinking(info) => {
+                // 预计算中文 PV
+                let pv_chinese = if let Some(state) = &self.game_state {
+                    let mut temp_state = state.clone();
+                    // 如果在 Ponder，说明引擎是在思考 ponder_move 之后的局面
+                    // 所以我们需要先模拟走出这一步，再解析 PV
+                    if let Some(ponder_move) = &self.ui_state.ponder_move {
+                        // 忽略错误，如果 ponder_move 非法，就尽力解析
+                        let _ = temp_state.apply_move(ponder_move);
+                    }
+                    
+                    if let Some(pv) = &info.pv {
+                        Some(temp_state.pv_to_chinese(pv).join(" "))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                self.ui_state.engine_pv_chinese = pv_chinese;
                 self.ui_state.engine_info = Some(info);
             }
             EngineEvent::BestMove {
                 best_move,
                 ponder_move,
             } => {
+                // 清除旧的思考信息，避免在界面上显示过时的 PV
+                self.ui_state.engine_info = None;
+                self.ui_state.engine_pv_chinese = None;
+
                 let best_move_display = if let Some(state) = &self.game_state {
                     state
                         .move_to_chinese(&best_move)

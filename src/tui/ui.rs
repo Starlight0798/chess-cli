@@ -246,15 +246,13 @@ fn draw_game(f: &mut Frame, app: &App) {
             "-".to_string()
         };
 
-        let pv_str = if let Some(pv) = &info.pv {
-            if let Some(state) = &app.game_state {
-                state.pv_to_chinese(pv).join(" ")
-            } else {
+        let pv_str = app.ui_state.engine_pv_chinese.clone().unwrap_or_else(|| {
+            if let Some(pv) = &info.pv {
                 pv.join(" ")
+            } else {
+                "-".to_string()
             }
-        } else {
-            "-".to_string()
-        };
+        });
 
         let nps_str = if let Some(nps) = info.nps {
             format!("{}k", nps / 1000)
