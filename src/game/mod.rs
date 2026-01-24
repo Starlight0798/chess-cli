@@ -1,7 +1,9 @@
-//! 游戏核心模块，包括状态管理和FEN处理
-
 pub mod fen;
+pub mod notation;
+pub mod rules;
 pub mod state;
+pub mod types;
 
-pub use fen::*;
-pub use state::*;
+pub use fen::FenProcessor;
+pub use state::GameState;
+pub use types::*;

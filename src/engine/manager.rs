@@ -46,10 +46,10 @@ impl EngineManager {
         let mut engines: HashMap<EngineType, EngineConfig> = HashMap::new();
         if let Some(table) = config.as_table() {
             for (key, value) in table {
-                if let Ok(engine_type) = EngineType::from_str(key) {
-                    if let Ok(engine_config) = EngineConfig::try_from(value.clone()) {
-                        engines.insert(engine_type, engine_config);
-                    }
+                if let Ok(engine_type) = EngineType::from_str(key)
+                    && let Ok(engine_config) = EngineConfig::try_from(value.clone())
+                {
+                    engines.insert(engine_type, engine_config);
                 }
             }
         }
@@ -57,7 +57,10 @@ impl EngineManager {
         log_info!(engines);
 
         let msg = if is_created {
-            format!("未找到配置文件，已在 {} 创建默认配置", config_path.display())
+            format!(
+                "未找到配置文件，已在 {} 创建默认配置",
+                config_path.display()
+            )
         } else {
             format!("已加载配置文件: {}", config_path.display())
         };
@@ -69,7 +72,7 @@ impl EngineManager {
     fn create_default_config() -> Result<PathBuf> {
         // 优先在当前目录创建
         let current_dir_config = Path::new("engines.toml");
-        
+
         let default_content = r#"# Chess CLI 引擎配置文件
 
 # 示例: 皮卡鱼 (Pikafish)
@@ -87,7 +90,7 @@ path = "./pikafish.exe"
 "#;
 
         // 尝试写入当前目录
-        if let Ok(_) = std::fs::write(current_dir_config, default_content) {
+        if std::fs::write(current_dir_config, default_content).is_ok() {
             return Ok(current_dir_config.to_path_buf());
         }
 
@@ -114,23 +117,23 @@ path = "./pikafish.exe"
         }
 
         // 2. 检查可执行文件所在目录
-        if let Ok(exe_path) = current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                let exe_config: PathBuf = exe_dir.join("engines.toml");
-                if exe_config.exists() {
-                    return Ok(exe_config);
-                }
+        if let Ok(exe_path) = current_exe()
+            && let Some(exe_dir) = exe_path.parent()
+        {
+            let exe_config: PathBuf = exe_dir.join("engines.toml");
+            if exe_config.exists() {
+                return Ok(exe_config);
+            }
 
-                // 2.1 开发环境回退：尝试在父目录查找 (例如 target/release/chess-cli -> ../../engines.toml)
-                let mut parent = exe_dir;
-                for _ in 0..3 {
-                    if let Some(p) = parent.parent() {
-                        let config = p.join("engines.toml");
-                        if config.exists() {
-                            return Ok(config);
-                        }
-                        parent = p;
+            // 2.1 开发环境回退：尝试在父目录查找 (例如 target/release/chess-cli -> ../../engines.toml)
+            let mut parent = exe_dir;
+            for _ in 0..3 {
+                if let Some(p) = parent.parent() {
+                    let config = p.join("engines.toml");
+                    if config.exists() {
+                        return Ok(config);
                     }
+                    parent = p;
                 }
             }
         }

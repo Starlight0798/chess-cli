@@ -1,4 +1,5 @@
-use crate::game::state::{GameState, Piece, PieceKind, PlayerColor};
+use crate::game::state::GameState;
+use crate::game::types::{Piece, PieceKind, PlayerColor};
 use crate::utils::*;
 
 /// 处理FEN字符串的解析和生成
@@ -141,5 +142,114 @@ impl FenProcessor {
             (PlayerColor::Black, PieceKind::Cannon) => 'c',
             (PlayerColor::Black, PieceKind::Pawn) => 'p',
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const INITIAL_FEN: &str = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w";
+
+    #[test]
+    fn parse_initial_position() {
+        let state = FenProcessor::parse_fen(INITIAL_FEN).unwrap();
+
+        assert_eq!(state.current_player, PlayerColor::Red);
+
+        assert!(matches!(
+            state.board[0][4],
+            Some(Piece {
+                color: PlayerColor::Red,
+                kind: PieceKind::General
+            })
+        ));
+        assert!(matches!(
+            state.board[9][4],
+            Some(Piece {
+                color: PlayerColor::Black,
+                kind: PieceKind::General
+            })
+        ));
+
+        assert!(matches!(
+            state.board[0][0],
+            Some(Piece {
+                color: PlayerColor::Red,
+                kind: PieceKind::Rook
+            })
+        ));
+        assert!(matches!(
+            state.board[2][1],
+            Some(Piece {
+                color: PlayerColor::Red,
+                kind: PieceKind::Cannon
+            })
+        ));
+    }
+
+    #[test]
+    fn parse_black_to_move() {
+        let fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR b";
+        let state = FenProcessor::parse_fen(fen).unwrap();
+        assert_eq!(state.current_player, PlayerColor::Black);
+    }
+
+    #[test]
+    fn generate_initial_position() {
+        let state = FenProcessor::parse_fen(INITIAL_FEN).unwrap();
+        let generated = FenProcessor::generate_fen(&state);
+        assert_eq!(generated, INITIAL_FEN);
+    }
+
+    #[test]
+    fn roundtrip_empty_board() {
+        let fen = "4k4/9/9/9/9/9/9/9/9/4K4 w";
+        let state = FenProcessor::parse_fen(fen).unwrap();
+        let generated = FenProcessor::generate_fen(&state);
+        assert_eq!(generated, fen);
+    }
+
+    #[test]
+    fn roundtrip_complex_position() {
+        let fen = "r1bakab1r/9/1cn4c1/p1p1p1p1p/9/9/P1P1P1P1P/1C2N2C1/9/RNBAKAB1R w";
+        let state = FenProcessor::parse_fen(fen).unwrap();
+        let generated = FenProcessor::generate_fen(&state);
+        assert_eq!(generated, fen);
+    }
+
+    #[test]
+    fn error_missing_player() {
+        let result =
+            FenProcessor::parse_fen("rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn error_invalid_row_count() {
+        let fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/RNBAKABNR w";
+        let result = FenProcessor::parse_fen(fen);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn error_invalid_column_count() {
+        let fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P/1C5C1/9/RNBAKABNR w";
+        let result = FenProcessor::parse_fen(fen);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn error_invalid_piece_char() {
+        let fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/XNBAKABNR w";
+        let result = FenProcessor::parse_fen(fen);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn error_invalid_player_char() {
+        let fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR x";
+        let result = FenProcessor::parse_fen(fen);
+        assert!(result.is_err());
     }
 }

@@ -39,13 +39,25 @@ impl EventHandler {
                     .checked_sub(last_tick.elapsed())
                     .unwrap_or_else(|| Duration::from_secs(0));
 
-                if event::poll(timeout).expect("failed to poll new events") {
-                    if let CEvent::Key(key) = event::read().expect("failed to read events") {
-                        if key.kind == KeyEventKind::Press || key.kind == KeyEventKind::Repeat {
-                            if tx.send(Event::Key(key)).is_err() {
+                match event::poll(timeout) {
+                    Ok(true) => match event::read() {
+                        Ok(CEvent::Key(key)) => {
+                            if (key.kind == KeyEventKind::Press || key.kind == KeyEventKind::Repeat)
+                                && tx.send(Event::Key(key)).is_err()
+                            {
                                 return;
                             }
                         }
+                        Ok(_) => {} // Ignore non-key events (mouse, resize, etc.)
+                        Err(_) => {
+                            // Terminal read error - send error event and continue
+                            let _ = tx.send(Event::Error);
+                        }
+                    },
+                    Ok(false) => {} // No event available, continue
+                    Err(_) => {
+                        // Terminal poll error - send error event and continue
+                        let _ = tx.send(Event::Error);
                     }
                 }
 

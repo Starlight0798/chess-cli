@@ -13,10 +13,7 @@ pub use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
-pub use tokio::{
-    io::{AsyncBufReadExt},
-    runtime::Runtime,
-};
+pub use tokio::{io::AsyncBufReadExt, runtime::Runtime};
 
 /// 初始化日志系统
 ///

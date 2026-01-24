@@ -282,58 +282,58 @@ impl UciEngine {
 
         let remaining = &line["option name ".len()..];
         let type_idx = remaining.find(" type ")?;
-        
+
         let name = remaining[..type_idx].to_string();
         let remaining = &remaining[type_idx + " type ".len()..];
-        
+
         let tokens: Vec<&str> = remaining.split_whitespace().collect();
         if tokens.is_empty() {
             return None;
         }
-        
+
         let type_ = tokens[0].to_string();
         let mut default = None;
         let mut min = None;
         let mut max = None;
         let mut vars = None;
-        
+
         let mut i = 1;
         while i < tokens.len() {
             match tokens[i] {
                 "default" if i + 1 < tokens.len() => {
-                    // For string/combo, default might be multiple words? 
+                    // For string/combo, default might be multiple words?
                     // Actually UCI says: "default <x>"
                     // If type is string, default can be empty or rest of line?
                     // Let's assume simple tokens for now, or handle specific types.
                     if type_ == "string" || type_ == "combo" {
-                         // For combo/string, it might take the rest, but usually it's a single token for combo vars
-                         // For string default value, it might be the rest of the line until another keyword?
-                         // But 'min', 'max', 'var' are keywords.
-                         // Let's just take the next token for now.
-                         default = Some(tokens[i+1].to_string());
-                         i += 2;
+                        // For combo/string, it might take the rest, but usually it's a single token for combo vars
+                        // For string default value, it might be the rest of the line until another keyword?
+                        // But 'min', 'max', 'var' are keywords.
+                        // Let's just take the next token for now.
+                        default = Some(tokens[i + 1].to_string());
+                        i += 2;
                     } else {
-                         default = Some(tokens[i+1].to_string());
-                         i += 2;
+                        default = Some(tokens[i + 1].to_string());
+                        i += 2;
                     }
                 }
                 "min" if i + 1 < tokens.len() => {
-                    min = tokens[i+1].parse().ok();
+                    min = tokens[i + 1].parse().ok();
                     i += 2;
                 }
                 "max" if i + 1 < tokens.len() => {
-                    max = tokens[i+1].parse().ok();
+                    max = tokens[i + 1].parse().ok();
                     i += 2;
                 }
                 "var" if i + 1 < tokens.len() => {
                     let v = vars.get_or_insert(Vec::new());
-                    v.push(tokens[i+1].to_string());
+                    v.push(tokens[i + 1].to_string());
                     i += 2;
                 }
                 _ => i += 1,
             }
         }
-        
+
         Some(EngineOption {
             name,
             type_,
@@ -426,13 +426,13 @@ impl EngineProtocol for UciEngine {
 
     async fn set_position(&mut self, fen: &str, moves: Option<&[String]>) -> Result<()> {
         let mut command = format!("position fen {}", fen);
-        if let Some(mvs) = moves {
-            if !mvs.is_empty() {
-                command.push_str(" moves");
-                for mv in mvs {
-                    command.push_str(" ");
-                    command.push_str(mv);
-                }
+        if let Some(mvs) = moves
+            && !mvs.is_empty()
+        {
+            command.push_str(" moves");
+            for mv in mvs {
+                command.push(' ');
+                command.push_str(mv);
             }
         }
         self.send_command(&command).await
@@ -474,13 +474,13 @@ impl EngineProtocol for UciEngine {
         if params.infinite {
             command.push_str(" infinite");
         }
-        if let Some(searchmoves) = params.searchmoves {
-            if !searchmoves.is_empty() {
-                command.push_str(" searchmoves");
-                for mv in searchmoves {
-                    command.push_str(" ");
-                    command.push_str(&mv);
-                }
+        if let Some(searchmoves) = params.searchmoves
+            && !searchmoves.is_empty()
+        {
+            command.push_str(" searchmoves");
+            for mv in searchmoves {
+                command.push(' ');
+                command.push_str(&mv);
             }
         }
 

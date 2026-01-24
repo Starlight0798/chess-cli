@@ -1,5 +1,7 @@
 use crate::game::{GameState, Piece, PieceKind, PlayerColor, Position};
-use crate::tui::app::{App, View, StrategyType};
+use crate::tui::app::App;
+use crate::tui::config::StrategyType;
+use crate::tui::ui_state::View;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -46,14 +48,15 @@ fn draw_home(f: &mut Frame, app: &App) {
         ""
     };
 
-    let menu = Paragraph::new(
-        format!("欢迎使用 Chess CLI\n\n\
+    let menu = Paragraph::new(format!(
+        "欢迎使用 Chess CLI\n\n\
         {}\
         按 'n' 开始新游戏\n\
         按 's' 进入设置 (选择红黑/引擎/难度)\n\
         按 'h' 查看帮助\n\
-        按 'q' 退出", continue_option)
-    )
+        按 'q' 退出",
+        continue_option
+    ))
     .block(Block::default().borders(Borders::ALL).title("菜单"));
     f.render_widget(menu, chunks[1]);
 }
@@ -73,7 +76,11 @@ fn draw_settings(f: &mut Frame, app: &App) {
         .split(f.area());
 
     let title = Paragraph::new("设置")
-        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, chunks[0]);
 
@@ -91,13 +98,35 @@ fn draw_settings(f: &mut Frame, app: &App) {
     let items = vec![
         format!("玩家执色: < {} >", player_side_str),
         format!("引擎选择: < {} >", app.ui_state.game_config.engine_name),
-        format!("MultiPV (多路分析): < {} >", app.ui_state.game_config.multipv),
-        format!("难度等级 (0-20): < {} >", app.ui_state.game_config.difficulty_level),
+        format!(
+            "MultiPV (多路分析): < {} >",
+            app.ui_state.game_config.multipv
+        ),
+        format!(
+            "难度等级 (0-20): < {} >",
+            app.ui_state.game_config.difficulty_level
+        ),
         format!("思考策略: < {} >", strategy_desc),
-        format!("步时 (ms): < {} >{}", app.ui_state.game_config.move_time, if !is_move_time { " (未启用)" } else { "" }),
-        format!("搜索深度: < {} >{}", app.ui_state.game_config.depth, if !is_depth { " (未启用)" } else { "" }),
-        format!("局时 (分): < {} >{}", app.ui_state.game_config.game_time, if !is_game_time { " (未启用)" } else { "" }),
-        format!("加秒 (秒): < {} >{}", app.ui_state.game_config.game_inc, if !is_game_time { " (未启用)" } else { "" }),
+        format!(
+            "步时 (ms): < {} >{}",
+            app.ui_state.game_config.move_time,
+            if !is_move_time { " (未启用)" } else { "" }
+        ),
+        format!(
+            "搜索深度: < {} >{}",
+            app.ui_state.game_config.depth,
+            if !is_depth { " (未启用)" } else { "" }
+        ),
+        format!(
+            "局时 (分): < {} >{}",
+            app.ui_state.game_config.game_time,
+            if !is_game_time { " (未启用)" } else { "" }
+        ),
+        format!(
+            "加秒 (秒): < {} >{}",
+            app.ui_state.game_config.game_inc,
+            if !is_game_time { " (未启用)" } else { "" }
+        ),
         "返回主菜单".to_string(),
     ];
 
@@ -106,7 +135,7 @@ fn draw_settings(f: &mut Frame, app: &App) {
         .enumerate()
         .map(|(i, item)| {
             let mut style = Style::default();
-            
+
             // Determine if item is enabled based on strategy
             let enabled = match i {
                 5 => is_move_time,
@@ -123,15 +152,27 @@ fn draw_settings(f: &mut Frame, app: &App) {
                 style = style.fg(Color::Yellow).add_modifier(Modifier::BOLD);
             }
 
-            ListItem::new(format!("{} {}", if i == app.ui_state.menu_index { ">>" } else { "  " }, item))
-                .style(style)
+            ListItem::new(format!(
+                "{} {}",
+                if i == app.ui_state.menu_index {
+                    ">>"
+                } else {
+                    "  "
+                },
+                item
+            ))
+            .style(style)
         })
         .collect();
 
     let list = List::new(list_items)
-        .block(Block::default().borders(Borders::ALL).title("选项 (上下移动，左右/回车修改)"))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("选项 (上下移动，左右/回车修改)"),
+        )
         .highlight_style(Style::default().add_modifier(Modifier::BOLD));
-    
+
     f.render_widget(list, chunks[1]);
 }
 
@@ -384,11 +425,11 @@ impl<'a> Widget for BoardWidget<'a> {
 
                 // 优先级：Cursor > Selected > LastMove > Piece/Empty
                 let mut style = Style::default();
-                let mut symbol = String::new();
+                let mut symbol: &str = "";
                 let mut has_piece = false;
 
                 if let Some(piece) = self.state.board[logic_row][logic_col] {
-                    symbol = format!(" {} ", get_piece_char(piece));
+                    symbol = get_piece_display(piece);
                     style = match piece.color {
                         PlayerColor::Red => theme_red,
                         PlayerColor::Black => theme_black,
@@ -401,15 +442,15 @@ impl<'a> Widget for BoardWidget<'a> {
                     style = style.patch(theme_cursor);
                     if !has_piece {
                         if is_legal_move {
-                            symbol = " [·] ".to_string();
+                            symbol = " [·] ";
                         } else {
-                            symbol = " [ ] ".to_string();
+                            symbol = " [ ] ";
                         }
                     }
                 } else if is_selected {
                     style = style.patch(theme_selected);
                     if !has_piece {
-                        symbol = " ( ) ".to_string();
+                        symbol = " ( ) ";
                     }
                 } else if is_last_move_from || is_last_move_to {
                     style = style.patch(theme_last_move);
@@ -420,7 +461,7 @@ impl<'a> Widget for BoardWidget<'a> {
                 // 如果没有棋子，显示网格或者提示点
                 if !has_piece {
                     if is_legal_move && !is_cursor {
-                        symbol = " · ".to_string();
+                        symbol = " · ";
                         style = theme_legal_hint;
                         // 如果是 last move 且是空的（from），还是会被覆盖成 blue bg
                         if is_last_move_from || is_last_move_to {
@@ -475,38 +516,18 @@ fn get_grid_char(row: usize, col: usize) -> &'static str {
     }
 }
 
-fn get_piece_char(piece: Piece) -> char {
-    match piece.kind {
-        PieceKind::General => {
-            if piece.color == PlayerColor::Red {
-                '帅'
-            } else {
-                '将'
-            }
-        }
-        PieceKind::Advisor => {
-            if piece.color == PlayerColor::Red {
-                '仕'
-            } else {
-                '士'
-            }
-        }
-        PieceKind::Elephant => {
-            if piece.color == PlayerColor::Red {
-                '相'
-            } else {
-                '象'
-            }
-        }
-        PieceKind::Horse => '马',
-        PieceKind::Rook => '车',
-        PieceKind::Cannon => '炮',
-        PieceKind::Pawn => {
-            if piece.color == PlayerColor::Red {
-                '兵'
-            } else {
-                '卒'
-            }
-        }
+fn get_piece_display(piece: Piece) -> &'static str {
+    match (piece.color, piece.kind) {
+        (PlayerColor::Red, PieceKind::General) => " 帅 ",
+        (PlayerColor::Black, PieceKind::General) => " 将 ",
+        (PlayerColor::Red, PieceKind::Advisor) => " 仕 ",
+        (PlayerColor::Black, PieceKind::Advisor) => " 士 ",
+        (PlayerColor::Red, PieceKind::Elephant) => " 相 ",
+        (PlayerColor::Black, PieceKind::Elephant) => " 象 ",
+        (_, PieceKind::Horse) => " 马 ",
+        (_, PieceKind::Rook) => " 车 ",
+        (_, PieceKind::Cannon) => " 炮 ",
+        (PlayerColor::Red, PieceKind::Pawn) => " 兵 ",
+        (PlayerColor::Black, PieceKind::Pawn) => " 卒 ",
     }
 }
